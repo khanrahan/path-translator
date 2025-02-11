@@ -1233,5 +1233,7 @@ def get_mediahub_files_custom_ui_actions():
              'actions': [{'name': 'Path Translator',
                           'isVisible': scope_folders,
                           'execute': PathTranslator,
-                          'minimumVersion': '2023.3.2'}]
+                          'minimumVersion': '2023.3.2',
+                          'maximumVersion': '2024.2',
+                          }]
             }]
