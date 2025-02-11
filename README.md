@@ -1,0 +1,29 @@
+# Path Translator
+
+Plugin for [Autodesk Flame software](http://www.autodesk.com/products/flame).
+
+Translate a path from one system to another system.  Basically, for converting windows paths to POSIX paths but could
+also be used to for 2 systems that have different mount points for some reason.
+
+![screenshot](screenshot.png)
+
+## Tokens
+- `Root`
+- `Path`
+
+## Compatibility
+Script Version|Flame Version|
+|---|---|
+|v1.X.X|Flame 2023.3.2 up to 2024.2|
+
+## Installation
+
+### Flame 2023.3.2 up to 2024.2
+To make available to all users on the workstation, copy `path_translator.py` to `/opt/Autodesk/shared/python`
+For specific users, copy to `/opt/Autodesk/user/<user name>/python`
+
+## Menus
+- Right-click a selected folder in the MediaHub `->` Navigate... `->` Path Translator
+
+## Acknowledgements
+UI Templates courtesy of [pyflame.com](http://www.pyflame.com)
