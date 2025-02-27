@@ -8,7 +8,7 @@ Flame Version: 2025
 URL: http://www.github.com/khanrahan/path-translator
 
 Creation Date: 02.10.24
-Update Date: 02;27.24
+Update Date: 02.27.24
 
 Description:
 
