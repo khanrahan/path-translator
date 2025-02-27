@@ -2,13 +2,13 @@ r"""
 Script Name: Path Translator
 Written By: Kieran Hanrahan
 
-Script Version: 1.0.0
-Flame Version: 2023.2.3
+Script Version: 2.0.0
+Flame Version: 2025
 
 URL: http://www.github.com/khanrahan/path-translator
 
 Creation Date: 02.10.24
-Update Date: 02.10.24
+Update Date: 02;27.24
 
 Description:
 
@@ -46,7 +46,7 @@ import flame
 from PySide6 import QtCore, QtGui, QtWidgets
 
 TITLE = 'Path Translator'
-VERSION_INFO = (1, 0, 0)
+VERSION_INFO = (2, 0, 0)
 VERSION = '.'.join([str(num) for num in VERSION_INFO])
 TITLE_VERSION = f'{TITLE} v{VERSION}'
 MESSAGE_PREFIX = '[PYTHON]'

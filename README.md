@@ -12,15 +12,29 @@ also be used to for 2 systems that have different mount points for some reason.
 - `Path`
 
 ## Compatibility
-Script Version|Flame Version|
+|Script Version|Flame Version|
 |---|---|
+|v2.X.X|Flame 2025 and newer|
 |v1.X.X|Flame 2023.3.2 up to 2024.2|
 
 ## Installation
 
+### Flame 2025 and newer
+To make available to all users on the workstation, copy `path_translator.py` to `/opt/Autodesk/shared/python`
+
+For specific users, copy `path_translator.py` to the appropriate path below...
+|Platform|Path|
+|---|---|
+|Linux|`/home/<user_name>/flame/python`|
+|Mac|`/Users/<user_name>/Library/Preferences/Autodesk/flame/python`|
+
 ### Flame 2023.3.2 up to 2024.2
 To make available to all users on the workstation, copy `path_translator.py` to `/opt/Autodesk/shared/python`
-For specific users, copy to `/opt/Autodesk/user/<user name>/python`
+
+For specific users, copy `path_translator.py` to `/opt/Autodesk/user/<user name>/python`
+
+### Last Step
+Finally, inside of Flame, go to Flame (fish) menu `->` Python `->` Rescan Python Hooks
 
 ## Menus
 - Right-click a selected folder in the MediaHub `->` Navigate... `->` Path Translator
