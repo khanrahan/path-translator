@@ -2,7 +2,7 @@ r"""
 Script Name: Path Translator
 Written By: Kieran Hanrahan
 
-Script Version: 1.0.1
+Script Version: 1.0.0
 Flame Version: 2023.2.3
 
 URL: http://www.github.com/khanrahan/path-translator
@@ -43,10 +43,10 @@ import xml.etree.ElementTree as ETree
 from functools import partial
 
 import flame
-from PySide2 import QtCore, QtGui, QtWidgets
+from PySide6 import QtCore, QtGui, QtWidgets
 
 TITLE = 'Path Translator'
-VERSION_INFO = (1, 0, 1)
+VERSION_INFO = (1, 0, 0)
 VERSION = '.'.join([str(num) for num in VERSION_INFO])
 TITLE_VERSION = f'{TITLE} v{VERSION}'
 MESSAGE_PREFIX = '[PYTHON]'
@@ -413,9 +413,10 @@ class FlameMessageWindow(QtWidgets.QDialog):
         self.setMaximumSize(QtCore.QSize(500, 330))
         self.setStyleSheet('background-color: rgb(36, 36, 36)')
 
-        resolution = QtWidgets.QDesktopWidget().screenGeometry()
+        resolution = QtGui.QGuiApplication.primaryScreen().availableGeometry()
         self.move((resolution.width() / 2) - (self.frameSize().width() / 2),
-                  (resolution.height() / 2) - (self.frameSize().height() / 2))
+                  (resolution.height() / 2) - (self.frameSize().height() / 2)
+        )
 
         self.setParent(parent)
 
@@ -947,11 +948,12 @@ class PathTranslator:
         self.save_window.setWindowTitle('Save Preset As...')
 
         # Center Window
-        resolution = QtWidgets.QDesktopWidget().screenGeometry()
+        resolution = QtGui.QGuiApplication.primaryScreen().availableGeometry()
 
         self.save_window.move(
             (resolution.width() / 2) - (self.save_window_x / 2),
-            (resolution.height() / 2) - (self.save_window_y / 2 + 44))
+            (resolution.height() / 2) - (self.save_window_y / 2 + 44)
+        )
 
         # Buttons
         self.save_btn_save = FlameButton(
@@ -979,7 +981,7 @@ class PathTranslator:
         self.save_hbox.addWidget(self.save_btn_save)
 
         self.save_vbox = QtWidgets.QVBoxLayout()
-        self.save_vbox.setMargin(20)
+        self.save_vbox.setContentsMargins(20, 20, 20, 20)
         self.save_vbox.addLayout(self.save_grid)
         self.save_vbox.addSpacing(20)
         self.save_vbox.addLayout(self.save_hbox)
@@ -1122,11 +1124,12 @@ class PathTranslator:
         self.window.setAttribute(QtCore.Qt.WA_DeleteOnClose)
 
         # Center Window
-        resolution = QtWidgets.QDesktopWidget().screenGeometry()
+        resolution = QtGui.QGuiApplication.primaryScreen().availableGeometry()
 
         self.window.move(
                 (resolution.width() / 2) - (self.window_x / 2),
-                (resolution.height() / 2) - (self.window_y / 2 + 44))
+                (resolution.height() / 2) - (self.window_y / 2 + 44)
+        )
 
         # Labels
         self.label_preset = FlameLabel('Preset', 'normal')
@@ -1210,7 +1213,7 @@ class PathTranslator:
         self.hbox2.addWidget(self.btn_ok)
 
         self.vbox = QtWidgets.QVBoxLayout()
-        self.vbox.setMargin(20)
+        self.vbox.setContentsMargins(20, 20, 20, 20)
         self.vbox.addLayout(self.grid)
         self.vbox.addSpacing(20)
         self.vbox.addLayout(self.hbox2)
@@ -1233,7 +1236,5 @@ def get_mediahub_files_custom_ui_actions():
              'actions': [{'name': 'Path Translator',
                           'isVisible': scope_folders,
                           'execute': PathTranslator,
-                          'minimumVersion': '2023.3.2',
-                          'maximumVersion': '2024.2',
-                          }]
+                          'minimumVersion': '2025.0.0'}]
             }]
