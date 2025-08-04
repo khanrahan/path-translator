@@ -720,7 +720,81 @@ class SettingsStore:
         if not os.path.exists(os.path.dirname(self.file)):
             os.makedirs(os.path.dirname(self.file))
 
-        self.tree.write(self.file)
+        self.tree.write(
+            self.file,
+            encoding='UTF-8',
+            xml_declaration=True
+        )
+
+
+class SavePresetWindow(QtWidgets.QDialog):
+    """View to confirm name of preset before saving."""
+
+    def __init__(self, parent):
+        """Initialize the instance.
+
+        Args:
+            parent: Pyside object to make this window a child of.
+        """
+        super().__init__(parent)
+        self.dimensions = {'x': 500, 'y': 100}
+        self.init_window()
+
+    @property
+    def name(self):
+        """Get the preset name."""
+        return self.line_edit_preset_name.text()
+
+    @name.setter
+    def name(self, string):
+        """Set the present name."""
+        self.line_edit_preset_name.setText(string)
+
+    def init_window(self):
+        """Initialize the window."""
+        self.setMinimumSize(
+                self.dimensions['x'], self.dimensions['y'])
+
+        self.setStyleSheet('background-color: #272727')
+        self.setWindowTitle('Save Preset As...')
+
+        # Center Window
+        resolution = QtGui.QGuiApplication.primaryScreen().screenGeometry()
+        self.move(
+            (resolution.width() / 2) - (self.dimensions['x'] / 2),
+            (resolution.height() / 2) - (self.dimensions['y'] / 2 + 44))
+
+        # Labels
+        self.label_preset_name = FlameLabel('Preset Name', 'normal')
+
+        # Line Edits
+        self.line_edit_preset_name = FlameLineEdit('')
+
+        # Buttons
+        self.save_btn_cancel = FlameButton(
+            'Cancel', self.reject, button_width=110)
+        self.save_btn_save = FlameButton(
+            'Save', self.accept, button_color='blue', button_width=110)
+
+        # Layout
+        self.save_grid = QtWidgets.QGridLayout()
+        self.save_grid.setVerticalSpacing(10)
+        self.save_grid.setHorizontalSpacing(10)
+        self.save_grid.addWidget(self.label_preset_name, 0, 0)
+        self.save_grid.addWidget(self.line_edit_preset_name, 0, 1)
+
+        self.save_hbox = QtWidgets.QHBoxLayout()
+        self.save_hbox.addStretch(1)
+        self.save_hbox.addWidget(self.save_btn_cancel)
+        self.save_hbox.addWidget(self.save_btn_save)
+
+        self.save_vbox = QtWidgets.QVBoxLayout()
+        self.save_vbox.setContentsMargins(20, 20, 20, 20)
+        self.save_vbox.addLayout(self.save_grid)
+        self.save_vbox.addSpacing(20)
+        self.save_vbox.addLayout(self.save_hbox)
+
+        self.setLayout(self.save_vbox)
 
 
 class PathTranslator:
@@ -776,6 +850,8 @@ class PathTranslator:
         self.window_y = 130
         self.save_window_x = 500
         self.save_window_y = 100
+
+        self.save_window = SavePresetWindow(self.main_window)
 
         self.main_window()
 
@@ -911,6 +987,42 @@ class PathTranslator:
         else:
             self.folder_new = os.path.join(result, '')
 
+    def preset_save_button(self):
+        """Triggered when the Save button the Presets line is pressed."""
+        self.save_window.name = self.main_window.preset
+        if self.save_window.exec() == QtWidgets.QDialog.Accepted:
+            duplicate = self.settings.duplicate_check(self.save_window.name)
+
+            if duplicate and FlameMessageWindow(
+                    'Overwrite Existing Preset', 'confirm', 'Are you '
+                    + 'sure want to permanently overwrite this preset?' + '<br/>'
+                    + 'This operation cannot be undone.'):
+                self.settings.overwrite_preset(
+                        name=self.save_window.name,
+                        pattern_input=self.pattern_input,
+                        pattern_output=self.pattern_output,
+                )
+
+            if not duplicate:
+                self.settings.add_preset(
+                        name=self.save_window.name,
+                        pattern_input=self.pattern_input,
+                        pattern_output=self.pattern_output,
+                )
+                self.settings.sort()
+
+            try:
+                self.settings.save()
+                self.message(f'{self.save_window.name} preset saved ' +
+                             f'to {self.settings_file}')
+            except OSError:  # removed IOError based on linter rule UP024
+                FlameMessageWindow(
+                    'Error', 'error',
+                    f'Check permissions on {self.settings_file}')
+
+            self.main_window.presets = self.settings.get_preset_names()
+            self.main_window.preset = self.save_window.name
+
     def save_preset_window(self):
         """Smaller window with save dialog."""
 
@@ -952,9 +1064,9 @@ class PathTranslator:
             if check_preset_folder():
                 try:
                     self.settings_xml_tree.write(
-                            self.settings_xml_file,
-                            encoding='UTF-8',
-                            xml_declaration=True
+                        self.settings_xml_file,
+                        encoding='UTF-8',
+                        xml_declaration=True
                     )
 
                     self.message(f'{self.line_edit_preset_name.text()} preset saved' +
