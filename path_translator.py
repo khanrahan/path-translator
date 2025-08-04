@@ -51,7 +51,7 @@ VERSION = '.'.join([str(num) for num in VERSION_INFO])
 TITLE_VERSION = f'{TITLE} v{VERSION}'
 MESSAGE_PREFIX = '[PYTHON]'
 
-CONFIG_FOLDER = '~/.config/path-translator'
+SETTINGS_FOLDER = '~/.config/path-translator'
 XML = 'path_translator.xml'
 
 
@@ -586,6 +586,143 @@ class FlameTokenPushButton(QtWidgets.QPushButton):
         token_action_menu()
 
 
+class SettingsStore:
+    """Store settings as XML.
+
+    The setting XML is structured as below:
+
+    <settings>
+        <script_name>Script Name
+            <version>X.X.X
+                <presets>
+                    <preset>
+                    </preset>
+                </preset>
+            </version>
+        </script_name>
+    </settings>
+    """
+
+    def __init__(self, file):
+        """Initialize the instance.
+
+        Args:
+            file: Filepath of existing or to be created XML file of settings.
+        """
+        self.file = file
+        self.root = None
+        self.tree = None
+        self.presets = None
+        self.load()
+
+    def load(self):
+        """Load preset file if preset and store XML tree & root."""
+        if os.path.isfile(self.file):
+            self.tree = ETree.parse(self.file)
+        else:
+            self.init_tree()
+
+        self.get_settings_root()
+        self.get_settings_presets()
+
+    def reload(self):
+        """Reload the file and store root & presets again."""
+        self.load()
+        self.get_settings_root()
+        self.get_settings_presets()
+
+    def init_tree(self):
+        """Create a new empty tree if one does not already exists."""
+        settings = ETree.Element('settings')
+
+        name = ETree.SubElement(settings, 'script_name')
+        name.text = TITLE
+
+        version = ETree.SubElement(name, 'version')
+        version.text = VERSION
+
+        presets = ETree.SubElement(version, 'presets')
+        self.tree = ETree.ElementTree(settings)
+
+    def get_settings_root(self):
+        """Store the root object for the ElementTree of settings."""
+        self.root = self.tree.getroot()
+
+    def get_settings_presets(self):
+        """Store the element object for the ElementTree of settings."""
+        self.presets = self.root.find('script_name/version/presets')
+
+    def get_presets(self):
+        """Return a list of preset Element objects."""
+        return self.presets.findall('preset')
+
+    def load_preset_by_index_element(self, index, element):
+        """Convert None to empty string.
+
+        ElementTree saves empty string as None.
+        """
+        preset_element = (
+            self.presets.findall('preset')[index].find(element).text)
+
+        if preset_element is None:
+            preset_element = ''
+
+        return preset_element
+
+    def duplicate_check(self, preset_name):
+        """Check that preset to be saved would not be a duplicate."""
+        duplicate = False
+
+        for preset in self.get_presets():
+            if preset.find('name').text == preset_name:
+                duplicate = True
+
+        return duplicate
+
+    def sort(self):
+        """Alphabetically sort presets by name attribute."""
+        self.presets[:] = sorted(
+            self.presets,
+            key=lambda preset: preset.find('name').text)
+
+    def get_preset_names(self):
+        """Return a list of all the preset names."""
+        return [preset.find('name').text for preset in self.get_presets()]
+
+    def add_preset(self, name=None, find=None, replace=None):
+        """Add preset Element object to the presets Element Tree."""
+        preset = ETree.Element('preset')
+
+        preset_name = ETree.SubElement(preset, 'name')
+        preset_name.text = name
+
+        preset_find = ETree.SubElement(preset, 'find')
+        preset_find.text = find
+
+        preset_replace = ETree.SubElement(preset, 'replace')
+        preset_replace.text = replace
+
+        self.presets.append(preset)
+
+    def overwrite_preset(self, name=None, find=None, replace=None):
+        """Replace pattern in presets XML tree then save to XML file."""
+        for preset in self.get_presets():
+            if preset.find('name').text == name:
+                preset.find('find').text = find
+                preset.find('replace').text = replace
+
+    def delete(self, preset):
+        """Remove preset Element from presets Element Tree."""
+        self.presets.remove(preset)
+
+    def save(self):
+        """Create folder path if necessary then write out the XML."""
+        if not os.path.exists(os.path.dirname(self.file)):
+            os.makedirs(os.path.dirname(self.file))
+
+        self.tree.write(self.file)
+
+
 class PathTranslator:
     """Convert a path from one system to a valid path on another system.
 
@@ -599,18 +736,10 @@ class PathTranslator:
 
         self.selection = selection
 
-        # Load settings & presets
-        self.settings_xml_folder = os.path.expanduser(CONFIG_FOLDER)
-        self.settings_xml_file = os.path.join(self.settings_xml_folder, XML)
-
-        self.settings_xml_tree = None
-        self.load_settings_tree()
-
-        self.settings_xml_root = None
-        self.get_settings_root()
-
-        self.settings_xml_presets = None
-        self.get_settings_presets()
+        # Load settings
+        self.settings_file = None
+        self.get_settings_file()
+        self.settings = SettingsStore(self.settings_file)
 
         # Load starting path
         self.path = None
@@ -655,31 +784,10 @@ class PathTranslator:
         """Print message to shell window and append global MESSAGE_PREFIX."""
         print(' '.join([MESSAGE_PREFIX, string]))
 
-    def load_settings_tree(self):
-        """Load preset file if present and store XML tree & root."""
-        if os.path.isfile(self.settings_xml_file):
-            parser = ETree.XMLParser(encoding='UTF-8')
-            self.settings_xml_tree = ETree.parse(self.settings_xml_file, parser=parser)
-        else:
-            settings = ETree.Element('settings')
-
-            name = ETree.SubElement(settings, 'script_name')
-            name.text = TITLE
-
-            version = ETree.SubElement(name, 'version')
-            version.text = VERSION
-
-            presets = ETree.SubElement(version, 'presets')
-            self.settings_xml_tree = ETree.ElementTree(settings)
-
-    def get_settings_root(self):
-        """Store the root object for the ElementTree of settings."""
-        self.settings_xml_root = self.settings_xml_tree.getroot()
-
-    def get_settings_presets(self):
-        """Store the element object for the ElementTree of presets."""
-        self.settings_xml_presets = self.settings_xml_root.find(
-                'script_name/version/presets')
+    def get_settings_file(self):
+        """Generate filepath for settings."""
+        user_folder = os.path.expanduser(SETTINGS_FOLDER)
+        self.settings_file = os.path.join(user_folder, XML)
 
     def generate_tokens_input(self):
         """Generate dictionary of input pattern tokens with a list for each.
@@ -731,24 +839,9 @@ class PathTranslator:
             result = ''
         return result
 
-    def load_preset_by_index_element(self, index, element):
-        """Load element from preset located at index.
-
-        Convert None to empty string.  ElementTree saves empty string as None.
-
-        Returns str
-        """
-        preset_element = (
-            self.settings_xml_presets.findall('preset')[index].find(element).text)
-
-        if preset_element is None:
-            preset_element = ''
-
-        return preset_element
-
     def load_path(self):
         """Load the input path from the clipboard contents or empty str."""
-        if self.settings_xml_presets.findall('preset'):
+        if self.settings.get_preset_names():
             if self.load_preset_by_index_element(0, 'clipboard_contents') == 'true':
                 self.load_path_from_clipboard()
         else:
@@ -761,9 +854,10 @@ class PathTranslator:
 
     def load_pattern_input(self):
         """Load the first preset's pattern or use the default pattern."""
-        if self.settings_xml_presets.findall('preset'):
+        if self.settings.get_preset_names():
             # load output pattern for first element in list of presets
-            self.pattern_input = self.load_preset_by_index_element(0, 'pattern_input')
+            self.pattern_input = self.settings.load_preset_by_index_element(
+                0, 'pattern_input')
         else:
             self.pattern_input = ''
 
@@ -796,9 +890,10 @@ class PathTranslator:
 
     def load_pattern_output(self):
         """Load output pattern from settings."""
-        if self.settings_xml_presets.findall('preset'):
+        if self.settings.get_preset_names():
             # load input pattern for first element in list of presets
-            self.pattern_output = self.load_preset_by_index_element(0, 'pattern_output')
+            self.pattern_output = self.settings.load_preset_by_index_element(
+                0, 'pattern_output')
         else:
             self.pattern_output = ''
 
@@ -834,17 +929,6 @@ class PathTranslator:
                         'Error', 'error',
                         f'Could not create {self.settings_xml_folder}')
             return result
-
-        def duplicate_check():
-            """Check that preset to be saved would not be a duplicate."""
-            duplicate = False
-            preset_name = self.line_edit_preset_name.text()
-
-            for preset in self.settings_xml_presets.findall('preset'):
-                if preset.get('name') == preset_name:
-                    duplicate = True
-
-            return duplicate
 
         def save_preset():
             """Save new preset to XML file."""
@@ -915,7 +999,7 @@ class PathTranslator:
 
         def save_button():
             """Triggered when the Save button at the bottom is pressed."""
-            duplicate = duplicate_check()
+            duplicate = self.settings.duplicate_check(self.save_window.name)
 
             if duplicate and FlameMessageWindow(
                     'Overwrite Existing Preset', 'confirm', 'Are you ' +
@@ -1005,17 +1089,6 @@ class PathTranslator:
 
             return selected_preset
 
-        def get_preset_names():
-            """Return just the names of the presets."""
-            try:
-                preset_names = [
-                    preset.get('name') for preset in
-                    self.settings_xml_presets.findall('preset')]
-            except IndexError:  # if findall() returns empty list
-                preset_names = []
-
-            return preset_names
-
         def get_preset_clipboard_contents_state():
             """Get the intended state of CLipboard button."""
             if self.settings_xml_presets.findall('preset'):
@@ -1074,24 +1147,18 @@ class PathTranslator:
                     + ' cannot be undone.'):
                 preset_name = self.btn_preset.text()
 
-                for preset in self.settings_xml_presets.findall('preset'):
-                    if preset.get('name') == preset_name:
-                        self.settings_xml_presets.remove(preset)
+                for preset in self.settings.get_presets():
+                    if preset.fine('name').text == preset_name:
+                        self.settings.delete(preset)
                         self.message(
                             f'{preset_name} preset deleted from ' +
-                            f'{self.settings_xml_file}')
+                            f'{self.settings_file}')
 
-                self.settings_xml_tree.write(
-                        self.settings_xml_file,
-                        encoding='UTF-8',
-                        xml_declaration=True
-                )
+                self.settings.save()
 
             # Reload presets button
-            self.load_settings_tree()
-            self.get_settings_root()
-            self.get_settings_presets()
-            self.btn_preset.populate_menu(get_preset_names())
+            self.settings.reload()
+            self.btn_preset.populate_menu(self.settings.get_preset_names())
             self.btn_preset.setText(get_selected_preset())
             update_pattern()
 
@@ -1153,7 +1220,10 @@ class PathTranslator:
 
         # Buttons
         self.btn_preset = FlamePushButtonMenu(
-            get_selected_preset(), get_preset_names(), menu_action=update_pattern)
+            get_selected_preset(),
+            self.settings.get_preset_names(),
+            menu_action=update_pattern
+        )
         self.btn_preset.setMaximumSize(QtCore.QSize(4000, 28))  # span over to Save btn
 
         self.btn_preset_save = FlameButton(
