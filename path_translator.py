@@ -797,6 +797,227 @@ class SavePresetWindow(QtWidgets.QDialog):
         self.setLayout(self.save_vbox)
 
 
+class MainWindow(QtWidgets.QWidget):
+    """A view class for the main window."""
+    signal_preset = QtCore.Signal()
+    signal_save = QtCore.Signal()
+    signal_delete = QtCore.Signal()
+    signal_path = QtCore.Signal(str)
+    signal_clipboard = QtCore.Signal()
+    signal_pattern_input = QtCore.Signal(str)
+    signal_pattern_output = QtCore.Signal(str)
+    signal_ok = QtCore.Signal()
+    signal_cancel = QtCore.Signal()
+
+    def __init__(self, parent_widget=None):
+        """Initialize the instance."""
+        super().__init__(parent=parent_widget)
+        self.init_window()
+
+    def init_window(self):
+        """Create the pyside objects and layout the window."""
+        self.setMinimumSize(1000, 320)
+        self.setStyleSheet('background-color: #272727')
+        self.setWindowTitle(TITLE_VERSION)
+
+        # Delete the object once closed
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
+
+        # Keeps on top of Flame but not other windows
+        self.setWindowFlags(QtCore.Qt.Tool)
+
+        # Labels
+        self.label_preset = FlameLabel('Preset', 'normal')
+        self.label_path = FlameLabel('Path', 'normal')
+        self.label_pattern_input = FlameLabel('Input Pattern', 'normal')
+        self.label_pattern_output = FlameLabel('Output Pattern', 'normal')
+        self.label_folder = FlameLabel('New Destination', 'normal')
+
+        # Lines
+        self.line_edit_path = FlameLineEdit('')
+        self.line_edit_path.textChanged.connect(self.signal_path.emit)
+
+        self.line_edit_pattern_input = FlameLineEdit('')
+        self.line_edit_pattern_input.textChanged.connect(
+            self.signal_pattern_input.emit
+        )
+
+        self.line_edit_pattern_output = FlameLineEdit('')
+        self.line_edit_pattern_output.textChanged.connect(
+            self.signal_pattern_output.emit
+        )
+
+        self.line_edit_folder = FlameLabel('', 'background')
+
+        # Buttons
+        self.btn_preset = FlamePushButtonMenu(
+            '',
+            [],
+            menu_action=self.signal_preset.emit,
+        )
+        self.btn_preset.setMaximumSize(QtCore.QSize(4000, 28))  # span over to Save btn
+
+        self.btn_preset_save = FlameButton(
+            'Save', self.signal_save.emit, button_width=110)
+        self.btn_preset_delete = FlameButton(
+            'Delete', self.signal_delete.emit, button_width=110)
+        self.btn_path_clipboard = FlamePushButton(
+            'Clipboard Contents',
+            False,
+            button_width=240)
+        self.btn_path_clipboard.clicked.connect(self.signal_clipboard.emit)
+        self.btn_tokens_input = FlameTokenPushButton(
+            'Add Token', {}, self.line_edit_pattern_input)
+        self.btn_tokens_output = FlameTokenPushButton(
+            'Add Token', {}, self.line_edit_pattern_output)
+        self.btn_ok = FlameButton(
+            'Ok', self.signal_ok.emit, button_color='blue', button_width=110)
+        self.btn_cancel = FlameButton(
+            'Cancel', self.signal_cancel.emit, button_width=110)
+
+        # Layout
+        self.hbox1 = QtWidgets.QHBoxLayout()
+        self.hbox1.addStretch()
+
+        self.grid = QtWidgets.QGridLayout()
+        self.grid.setVerticalSpacing(10)
+        self.grid.setHorizontalSpacing(10)
+        self.grid.addWidget(self.label_preset, 0, 0)
+        self.grid.addWidget(self.btn_preset, 0, 1)
+        self.grid.addWidget(self.btn_preset_save, 0, 2)
+        self.grid.addWidget(self.btn_preset_delete, 0, 3)
+        self.grid.addWidget(self.label_path, 1, 0)
+        self.grid.addWidget(self.line_edit_path, 1, 1)
+        self.grid.addWidget(self.btn_path_clipboard, 1, 2, 1, 2)
+        self.grid.addWidget(self.label_pattern_input, 2, 0)
+        self.grid.addWidget(self.line_edit_pattern_input, 2, 1)
+        self.grid.addWidget(self.btn_tokens_input, 2, 2)
+        self.grid.addWidget(self.label_pattern_output, 3, 0)
+        self.grid.addWidget(self.line_edit_pattern_output, 3, 1)
+        self.grid.addWidget(self.btn_tokens_output, 3, 2)
+        self.grid.addWidget(self.label_folder, 4, 0)
+        self.grid.addWidget(self.line_edit_folder, 4, 1)
+        self.grid.addLayout(self.hbox1, 4, 1)
+
+        self.hbox2 = QtWidgets.QHBoxLayout()
+        self.hbox2.addStretch(1)
+        self.hbox2.addWidget(self.btn_cancel)
+        self.hbox2.addWidget(self.btn_ok)
+
+        self.vbox = QtWidgets.QVBoxLayout()
+        self.vbox.setContentsMargins(20, 20, 20, 20)
+        self.vbox.addLayout(self.grid)
+        self.vbox.addSpacing(20)
+        self.vbox.addLayout(self.hbox2)
+
+        self.setLayout(self.vbox)
+
+        self.center_window()
+
+    def center_window(self):
+        """Center the window on screen.
+
+        Important to note this is centering the window BEFORE it is shown.  frameSize is
+        based on setMinimumSize until the window is shown with show(), THEN it will
+        reflect actual size.  Therefore, its important to have your setMinimumSize be
+        very close to final size.
+        """
+        resolution = QtGui.QGuiApplication.primaryScreen().screenGeometry()
+        self.move(
+                (resolution.width() / 2) - (self.frameSize().width() / 2),
+                (resolution.height() / 2) - (self.frameSize().height() / 2))
+
+    @property
+    def destination(self):
+        """Get or set the destination filepath."""
+        return self.line_edit_folder.text()
+
+    @destination.setter
+    def destination(self, string):
+        self.line_edit_folder.setText(string)
+
+    @property
+    def clipboard_enabled(self):
+        """Get the status or set the status of the Get Clipboard Contents button."""
+        return self.btn_path_clipboard.isChecked()
+
+    @clipboard_enabled.setter
+    def clipboard_enabled(self, boolean):
+        self.btn_path_clipboard.setChecked(boolean)
+
+    @property
+    def path(self):
+        """Get or set the input path line edit."""
+        return self.line_edit_path.text()
+
+    @path.setter
+    def path(self, string):
+        self.line_edit_path.setText(string)
+
+    @property
+    def path_enabled(self):
+        """Get or set the enabled state of the path line edit."""
+        return self.line_edit_path.isEnabled()
+
+    @path_enabled.setter
+    def path_enabled(self, boolean):
+        self.line_edit_path.setEnabled(boolean)
+
+    @property
+    def preset(self):
+        """Get or set the currently selected preset name."""
+        return self.btn_preset.text()
+
+    @preset.setter
+    def preset(self, string):
+        self.btn_preset.setText(string)
+
+    @property
+    def presets(self):
+        """Get or set a list of the available preset names."""
+        return [action.text() for action in self.btn_preset.actions()]
+
+    @presets.setter
+    def presets(self, presets):
+        self.btn_preset.populate_menu(presets)
+
+    @property
+    def pattern_input(self):
+        """Get or set the input pattern."""
+        return self.line_edit_pattern_input.text()
+
+    @pattern_input.setter
+    def pattern_input(self, string):
+        self.line_edit_pattern_input.setText(string)
+
+    @property
+    def pattern_output(self):
+        """Get or set the output pattern."""
+        return self.line_edit_pattern_output.text()
+
+    @pattern_output.setter
+    def pattern_output(self, string):
+        self.line_edit_pattern_output.setText(string)
+
+    @property
+    def tokens_input(self):
+        """Get or set a dictionary of input tokens available."""
+        return self.btn_tokens_input.token_dict
+
+    @tokens_input.setter
+    def tokens_input(self, tokens_dict):
+        self.btn_tokens_input.init_menu(tokens_dict)
+
+    @property
+    def tokens_output(self):
+        """Get or set a dictionary of output tokens available."""
+        return self.btn_tokens_output.token_dict
+
+    @tokens_output.setter
+    def tokens_output(self, tokens_dict):
+        self.btn_tokens_output.init_menu(tokens_dict)
+
+
 class PathTranslator:
     """Convert a path from one system to a valid path on another system.
 
@@ -845,20 +1066,42 @@ class PathTranslator:
         self.folder_new = None
         self.generate_folder_new()
 
-        # Starting dimensions
-        self.window_x = 1000
-        self.window_y = 130
-        self.save_window_x = 500
-        self.save_window_y = 100
+        # Windows
+        self.parent_window = self.get_flame_main_window()
+        self.main_window = MainWindow(self.parent_window)
+        self.main_window.signal_preset.connect(self.update_pattern)
+        self.main_window.signal_save.connect(self.preset_save_button)
+        self.main_window.signal_delete.connect(self.preset_delete_button)
+        self.main_window.signal_path.connect(self.update_folder)
+        self.main_window.signal_clipboard.connect(self.clipboard_button)
+        self.main_window.signal_pattern_input.connect(self.update_folder)
+        self.main_window.signal_pattern_output.connect(self.update_folder)
+        self.main_window.signal_ok.connect(self.ok_button)
+        self.main_window.signal_cancel.connect(self.cancel_button)
 
+        self.main_window.preset = (self.settings.get_preset_names()[0] if
+                                   self.settings.get_preset_names() else None)
+        self.main_window.presets = self.settings.get_preset_names()
+        self.main_window.pattern_input = self.pattern_input
+        self.main_window.pattern_output = self.pattern_output
+        self.main_window.tokens = {key: values[0] for
+                                   key, values in self.tokens_input.items()}
+        self.main_window.destination = self.folder_new
         self.save_window = SavePresetWindow(self.main_window)
-
-        self.main_window()
+        self.main_window.show()
 
     @staticmethod
     def message(string):
         """Print message to shell window and append global MESSAGE_PREFIX."""
         print(' '.join([MESSAGE_PREFIX, string]))
+
+    @staticmethod
+    def get_flame_main_window():
+        """Return the Flame main window widget."""
+        for widget in QtWidgets.QApplication.topLevelWidgets():
+            if widget.objectName() == 'CF Main Window':
+                return widget
+        return None
 
     def get_settings_file(self):
         """Generate filepath for settings."""
@@ -918,7 +1161,7 @@ class PathTranslator:
     def load_path(self):
         """Load the input path from the clipboard contents or empty str."""
         if self.settings.get_preset_names():
-            if self.load_preset_by_index_element(0, 'clipboard_contents') == 'true':
+            if self.settings.load_preset_by_index_element(0, 'clipboard_contents') == 'true':
                 self.load_path_from_clipboard()
         else:
             self.path = ''
@@ -1023,388 +1266,96 @@ class PathTranslator:
             self.main_window.presets = self.settings.get_preset_names()
             self.main_window.preset = self.save_window.name
 
-    def save_preset_window(self):
-        """Smaller window with save dialog."""
-
-        def check_preset_folder():
-            """Check that destination folder for preset XML file is available."""
-            result = False
-
-            if os.path.exists(self.settings_xml_folder):
-                result = True
-            else:
-                try:
-                    os.makedirs(self.settings_xml_folder)
-                    result = True
-                except OSError:
-                    FlameMessageWindow(
-                        'Error', 'error',
-                        f'Could not create {self.settings_xml_folder}')
-            return result
-
-        def save_preset():
-            """Save new preset to XML file."""
-            # is the below taking the name from this window or the previous
-            new_preset = ETree.Element('preset', name=self.line_edit_preset_name.text())
-
-            new_clipboard_contents = ETree.SubElement(new_preset, 'clipboard_contents')
-            new_clipboard_contents.text = (
-                    str(self.btn_path_clipboard.isEnabled()).lower()
+    def get_selected_preset(self):
+        """Get preset that should be displayed or return empty string."""
+        try:
+            selected_preset = (
+                    self.settings_xml_presets.findall('preset')[0].get('name')
             )
+        except IndexError:  # if findall() returns empty list
+            selected_preset = ''
 
-            new_pattern = ETree.SubElement(new_preset, 'pattern_input')
-            new_pattern.text = self.pattern_input
+        return selected_preset
 
-            new_pattern = ETree.SubElement(new_preset, 'pattern_output')
-            new_pattern.text = self.pattern_output
+    def clipboard_button(self):
+        """Update UI when Clipboard Contents button is pressed."""
+        if self.main_window.clipboard_enabled:
+            self.main_window.path_enabled = False
+            self.load_path_from_clipboard()
+            self.main_window.path = self.path
+        else:
+            self.main_window.path_enabled = True
 
-            self.settings_xml_presets.append(new_preset)
-            sort_presets()
+    def update_folder(self):
+        """Update folder when pattern is changed."""
+        self.path = self.main_window.path
+        self.pattern_input = self.main_window.pattern_input
+        self.pattern_output = self.main_window.pattern_output
+        self.generate_pattern_input_regex()
+        self.capture_pattern_input_regex()
+        self.generate_folder_new()
+        self.main_window.destination = self.folder_new
 
-            if check_preset_folder():
-                try:
-                    self.settings_xml_tree.write(
-                        self.settings_xml_file,
-                        encoding='UTF-8',
-                        xml_declaration=True
-                    )
+    def update_pattern(self):
+        """Update pattern when preset is changed."""
+        preset_name = self.btn_preset.text()
 
-                    self.message(f'{self.line_edit_preset_name.text()} preset saved' +
-                                 f' to {self.settings_xml_file}')
-                except OSError as err:
-                    raise err
-                    FlameMessageWindow(
-                        'Error', 'error',
-                        f'Check permissions on {self.settings_xml_file}')
-
-        def overwrite_preset():
-            """Replace pattern in presets XML tree then save to XML file."""
-            preset_name = self.line_edit_preset_name.text()
-
+        if preset_name:  # might be empty str if all presets were deleted
             for preset in self.settings_xml_presets.findall('preset'):
                 if preset.get('name') == preset_name:
-                    preset.find('clipboard_contents').text = (
-                            str(self.btn_path_clipboard.isEnabled()).lower()
-                    )
-                    preset.find('pattern_input').text = (self.pattern_input)
-                    preset.find('pattern_output').text = (self.pattern_output)
+                    if preset.find('clipboard_contents').text == 'true':
+                        self.load_path_from_clipboard()
+                        self.line_edit_path.setText(self.path)
+                        self.line_edit_path.setEnabled(False)
+                        self.btn_path_clipboard.setChecked(True)
+                    else:
+                        self.line_edit_path.setEnabled(True)
+                        self.btn_path_clipboard.setChecked(False)
+                    self.line_edit_pattern_input.setText(
+                            preset.find('pattern_input').text)
+                    self.line_edit_pattern_output.setText(
+                            preset.find('pattern_output').text)
+                    break  # should not be any duplicates
 
-            try:
-                self.settings_xml_tree.write(
-                        self.settings_xml_file,
-                        encoding='UTF-8',
-                        xml_declaration=True
-                )
-
-                self.message(f'{self.line_edit_preset_name.text()} preset saved to ' +
-                             f'{self.settings_xml_file}')
-            except OSError:
-                FlameMessageWindow(
-                    'Error', 'error',
-                    f'Check permissions on {self.settings_xml_file}')
-
-        def sort_presets():
-            """Alphabetically sort presets by name attribute."""
-            self.settings_xml_presets[:] = sorted(
-                self.settings_xml_presets,
-                key=lambda child: (child.tag, child.get('name')))
-
-        def save_button():
-            """Triggered when the Save button at the bottom is pressed."""
-            duplicate = self.settings.duplicate_check(self.save_window.name)
-
-            if duplicate and FlameMessageWindow(
-                    'Overwrite Existing Preset', 'confirm', 'Are you ' +
-                    'sure want to permanently overwrite this preset?' + '<br/>' +
-                    'This operation cannot be undone.'):
-                overwrite_preset()
-                self.btn_preset.populate_menu(
-                    [preset.get('name') for preset in
-                     self.settings_xml_presets.findall('preset')])
-                self.btn_preset.setText(self.line_edit_preset_name.text())
-                self.save_window.close()
-
-            if not duplicate:
-                save_preset()
-                self.btn_preset.populate_menu(
-                    [preset.get('name') for preset in
-                     self.settings_xml_presets.findall('preset')])
-                self.btn_preset.setText(self.line_edit_preset_name.text())
-                self.save_window.close()
-
-        def cancel_button():
-            """Triggered when the Cancel button at the bottom is pressed."""
-            self.save_window.close()
-
-        self.save_window = QtWidgets.QWidget()
-
-        self.save_window.setMinimumSize(self.save_window_x, self.save_window_y)
-
-        self.save_window.setStyleSheet('background-color: #272727')
-        self.save_window.setWindowTitle('Save Preset As...')
-
-        # Center Window
-        resolution = QtGui.QGuiApplication.primaryScreen().availableGeometry()
-
-        self.save_window.move(
-            (resolution.width() / 2) - (self.save_window_x / 2),
-            (resolution.height() / 2) - (self.save_window_y / 2 + 44)
-        )
-
-        # Buttons
-        self.save_btn_save = FlameButton(
-            'Save', save_button, button_color='blue', button_width=110)
-        self.save_btn_cancel = FlameButton('Cancel', cancel_button, button_width=110)
-
-        # Labels
-        self.label_preset_name = FlameLabel('Preset Name', 'normal')
-        self.label_preset_pattern_input = FlameLabel('Input Pattern', 'normal')
-        self.label_preset_pattern_output = FlameLabel('Output Pattern', 'normal')
-
-        # Line Edits
-        self.line_edit_preset_name = FlameLineEdit(self.btn_preset.text())
-
-        # Layout
-        self.save_grid = QtWidgets.QGridLayout()
-        self.save_grid.setVerticalSpacing(10)
-        self.save_grid.setHorizontalSpacing(10)
-        self.save_grid.addWidget(self.label_preset_name, 0, 0)
-        self.save_grid.addWidget(self.line_edit_preset_name, 0, 1)
-
-        self.save_hbox = QtWidgets.QHBoxLayout()
-        self.save_hbox.addStretch(1)
-        self.save_hbox.addWidget(self.save_btn_cancel)
-        self.save_hbox.addWidget(self.save_btn_save)
-
-        self.save_vbox = QtWidgets.QVBoxLayout()
-        self.save_vbox.setContentsMargins(20, 20, 20, 20)
-        self.save_vbox.addLayout(self.save_grid)
-        self.save_vbox.addSpacing(20)
-        self.save_vbox.addLayout(self.save_hbox)
-
-        self.save_window.setLayout(self.save_vbox)
-
-        self.save_window.show()
-
-        return self.window
-
-    def main_window(self):
-        """The main GUI window."""
-        def get_selected_preset():
-            """Get preset that should be displayed or return empty string."""
-            try:
-                selected_preset = (
-                        self.settings_xml_presets.findall('preset')[0].get('name')
-                )
-            except IndexError:  # if findall() returns empty list
-                selected_preset = ''
-
-            return selected_preset
-
-        def get_preset_clipboard_contents_state():
-            """Get the intended state of CLipboard button."""
-            if self.settings_xml_presets.findall('preset'):
-                if self.load_preset_by_index_element(0, 'clipboard_contents') == 'true':
-                    state = True
-            else:
-                state = False
-
-            return state
-
-        def toggle_clipboard_contents():
-            """Update UI when Clipboard Contents button is pressed."""
-            if self.line_edit_path.isEnabled():
-                self.line_edit_path.setEnabled(False)
-                self.load_path_from_clipboard()
-                self.line_edit_path.setText(self.path)
-            else:
-                self.line_edit_path.setEnabled(True)
-
-        def update_folder():
-            """Update folder when pattern is changed."""
-            self.path = self.line_edit_path.text()
-            self.pattern_input = self.line_edit_pattern_input.text()
-            self.pattern_output = self.line_edit_pattern_output.text()
-            self.generate_pattern_input_regex()
-            self.capture_pattern_input_regex()
-            self.generate_folder_new()
-            self.line_edit_folder.setText(self.folder_new)
-
-        def update_pattern():
-            """Update pattern when preset is changed."""
+    def preset_delete_button(self):
+        """Triggered when the Delete button on the Preset line is pressed."""
+        if FlameMessageWindow(
+                'Confirm Operation', 'confirm', 'Are you sure want to'
+                + ' permanently delete this preset?' + '<br/>' + 'This operation'
+                + ' cannot be undone.'):
             preset_name = self.btn_preset.text()
 
-            if preset_name:  # might be empty str if all presets were deleted
-                for preset in self.settings_xml_presets.findall('preset'):
-                    if preset.get('name') == preset_name:
-                        if preset.find('clipboard_contents').text == 'true':
-                            self.load_path_from_clipboard()
-                            self.line_edit_path.setText(self.path)
-                            self.line_edit_path.setEnabled(False)
-                            self.btn_path_clipboard.setChecked(True)
-                        else:
-                            self.line_edit_path.setEnabled(True)
-                            self.btn_path_clipboard.setChecked(False)
-                        self.line_edit_pattern_input.setText(
-                                preset.find('pattern_input').text)
-                        self.line_edit_pattern_output.setText(
-                                preset.find('pattern_output').text)
-                        break  # should not be any duplicates
+            for preset in self.settings.get_presets():
+                if preset.fine('name').text == preset_name:
+                    self.settings.delete(preset)
+                    self.message(
+                        f'{preset_name} preset deleted from ' +
+                        f'{self.settings_file}')
 
-        def preset_delete_button():
-            """Triggered when the Delete button on the Preset line is pressed."""
-            if FlameMessageWindow(
-                    'Confirm Operation', 'confirm', 'Are you sure want to'
-                    + ' permanently delete this preset?' + '<br/>' + 'This operation'
-                    + ' cannot be undone.'):
-                preset_name = self.btn_preset.text()
+            self.settings.save()
 
-                for preset in self.settings.get_presets():
-                    if preset.fine('name').text == preset_name:
-                        self.settings.delete(preset)
-                        self.message(
-                            f'{preset_name} preset deleted from ' +
-                            f'{self.settings_file}')
+        # Reload presets button
+        self.settings.reload()
+        self.main_window.presets = self.settings.get_preset_names()
+        self.main_window.preset = self.settings.get_preset_names()[0]
+        self.update_preset()
 
-                self.settings.save()
+    def ok_button(self):
+        """Triggered when the Okay button at the bottom is pressed."""
+        # add try and error msg window if path doesnt exist
+        if os.path.exists(self.folder_new):
+            flame.mediahub.files.set_path(self.folder_new)
+            self.main_window.close()
+            self.message(f'MediaHub path changed to {self.folder_new}')
+            self.message('Done!')
+        else:
+            FlameMessageWindow('Error', 'error',
+                    f'{self.folder_new} does not exist.')
 
-            # Reload presets button
-            self.settings.reload()
-            self.btn_preset.populate_menu(self.settings.get_preset_names())
-            self.btn_preset.setText(get_selected_preset())
-            update_pattern()
-
-        def preset_save_button():
-            """Triggered when the Save button the Presets line is pressed."""
-            self.save_preset_window()
-
-        def okay_button():
-            """Triggered when the Okay button at the bottom is pressed."""
-            # add try and error msg window if path doesnt exist
-            if os.path.exists(self.folder_new):
-                flame.mediahub.files.set_path(self.folder_new)
-                self.window.close()
-                self.message(f'MediaHub path changed to {self.folder_new}')
-                self.message('Done!')
-            else:
-                FlameMessageWindow('Error', 'error',
-                        f'{self.folder_new} does not exist.')
-
-        def cancel_button():
-            """Triggered when the Cancel button at the bottom is pressed."""
-            self.message('Cancelled!')
-            self.window.close()
-
-        self.window = QtWidgets.QWidget()
-
-        self.window.setMinimumSize(self.window_x, self.window_y)
-        self.window.setStyleSheet('background-color: #272727')
-        self.window.setWindowTitle(TITLE_VERSION)
-        self.window.setAttribute(QtCore.Qt.WA_DeleteOnClose)
-
-        # Center Window
-        resolution = QtGui.QGuiApplication.primaryScreen().availableGeometry()
-
-        self.window.move(
-                (resolution.width() / 2) - (self.window_x / 2),
-                (resolution.height() / 2) - (self.window_y / 2 + 44)
-        )
-
-        # Labels
-        self.label_preset = FlameLabel('Preset', 'normal')
-        self.label_path = FlameLabel('Path', 'normal')
-        self.label_pattern_input = FlameLabel('Input Pattern', 'normal')
-        self.label_pattern_output = FlameLabel('Output Pattern', 'normal')
-        self.label_folder = FlameLabel('New Destination', 'normal')
-
-        # Lines
-        self.line_edit_path = FlameLineEdit(self.path)
-        self.line_edit_path.setEnabled(not get_preset_clipboard_contents_state())
-        self.line_edit_path.textChanged.connect(update_folder)
-
-        self.line_edit_pattern_input = FlameLineEdit(self.pattern_input)
-        self.line_edit_pattern_input.textChanged.connect(update_folder)
-
-        self.line_edit_pattern_output = FlameLineEdit(self.pattern_output)
-        self.line_edit_pattern_output.textChanged.connect(update_folder)
-
-        self.line_edit_folder = FlameLabel(self.folder_new, 'background')
-
-        # Buttons
-        self.btn_preset = FlamePushButtonMenu(
-            get_selected_preset(),
-            self.settings.get_preset_names(),
-            menu_action=update_pattern
-        )
-        self.btn_preset.setMaximumSize(QtCore.QSize(4000, 28))  # span over to Save btn
-
-        self.btn_preset_save = FlameButton(
-                'Save', preset_save_button, button_width=110)
-        self.btn_preset_delete = FlameButton(
-                'Delete', preset_delete_button, button_width=110)
-        self.btn_path_clipboard = FlamePushButton(
-                'Clipboard Contents',
-                get_preset_clipboard_contents_state(),
-                button_width=240)
-        self.btn_path_clipboard.clicked.connect(toggle_clipboard_contents)
-        self.btn_tokens_input = FlameTokenPushButton(
-                'Add Token',
-                # self.tokens is a dict with a nested set for each key
-                # FlameTokenPushButton wants a dict that is only {token_name: token}
-                # so need to simplify it with a dict comprehension
-                {key: values[0] for key, values in self.tokens_input.items()},
-                self.line_edit_pattern_input)
-        self.btn_tokens_output = FlameTokenPushButton(
-                'Add Token',
-                # self.tokens is a dict with a nested set for each key
-                # FlameTokenPushButton wants a dict that is only {token_name: token}
-                # so need to simplify it with a dict comprehension
-                {key: values[0] for key, values in self.tokens_output.items()},
-                self.line_edit_pattern_output)
-        self.btn_ok = FlameButton(
-                'Ok', okay_button, button_color='blue', button_width=110)
-        self.btn_cancel = FlameButton('Cancel', cancel_button, button_width=110)
-
-        # Layout
-        self.hbox1 = QtWidgets.QHBoxLayout()
-        self.hbox1.addStretch()
-
-        self.grid = QtWidgets.QGridLayout()
-        self.grid.setVerticalSpacing(10)
-        self.grid.setHorizontalSpacing(10)
-        self.grid.addWidget(self.label_preset, 0, 0)
-        self.grid.addWidget(self.btn_preset, 0, 1)
-        self.grid.addWidget(self.btn_preset_save, 0, 2)
-        self.grid.addWidget(self.btn_preset_delete, 0, 3)
-        self.grid.addWidget(self.label_path, 1, 0)
-        self.grid.addWidget(self.line_edit_path, 1, 1)
-        self.grid.addWidget(self.btn_path_clipboard, 1, 2, 1, 2)
-        self.grid.addWidget(self.label_pattern_input, 2, 0)
-        self.grid.addWidget(self.line_edit_pattern_input, 2, 1)
-        self.grid.addWidget(self.btn_tokens_input, 2, 2)
-        self.grid.addWidget(self.label_pattern_output, 3, 0)
-        self.grid.addWidget(self.line_edit_pattern_output, 3, 1)
-        self.grid.addWidget(self.btn_tokens_output, 3, 2)
-        self.grid.addWidget(self.label_folder, 4, 0)
-        self.grid.addWidget(self.line_edit_folder, 4, 1)
-        self.grid.addLayout(self.hbox1, 4, 1)
-
-        self.hbox2 = QtWidgets.QHBoxLayout()
-        self.hbox2.addStretch(1)
-        self.hbox2.addWidget(self.btn_cancel)
-        self.hbox2.addWidget(self.btn_ok)
-
-        self.vbox = QtWidgets.QVBoxLayout()
-        self.vbox.setContentsMargins(20, 20, 20, 20)
-        self.vbox.addLayout(self.grid)
-        self.vbox.addSpacing(20)
-        self.vbox.addLayout(self.hbox2)
-
-        self.window.setLayout(self.vbox)
-
-        self.window.show()
-
-        return self.window
+    def cancel_button(self):
+        """Triggered when the Cancel button at the bottom is pressed."""
+        self.main_window.close()
+        self.message('Cancelled!')
 
 
 def scope_folders(selection):
