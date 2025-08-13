@@ -741,6 +741,79 @@ class SettingsStore:
         )
 
 
+class TokenStore:
+    """Store all of the available tokens for the passed in Flame object."""
+
+    def __init__(self, flame_object, epoch=None):
+        """Initialize the instance.
+
+        Args:
+            flame_object: Flame API object
+            epoch: A date time object.  Useful to have all tokens referencing the exact
+                same moment, instead of being very verry verrry slightly offset.
+        """
+        self.flame_object = flame_object
+        self.now = epoch
+        self.tokens = {}
+        self.get_tokens()
+        self.capture_pattern = None
+        self.capture_regex = None
+
+    def get_tokens(self):
+        """Get all available tokens: generic and object specific."""
+        self.get_tokens_generic()
+
+    def get_tokens_generic(self):
+        """Populate the token list."""
+        self.tokens['Root'] = ['{root}', r'[A-Z]:\\', '<root>', '']
+        self.tokens['Path'] = [
+            '{path}', r'(?P<Path>[a-zA-Z0-9_\.\-\\\/]+)', '<path>', '']
+
+    def capture_input_tokens(self, pattern, string):
+        """
+        pattern:
+            aseembled regex pattern to perform capture on string
+        string:
+            string to perform the regex on.
+        """
+        regex = self.generate_capture_regex(pattern)
+        self.capture_pattern_input_regex(regex, string)
+
+    def generate_capture_regex(self, pattern):
+        r"""Generate a regex based on the input pattern tokens.
+
+        This regex will be used to find matching folders.  Use the token regex if
+        available otherwise just token.
+
+        for example, {path} would become [a-zA-Z0-9+\\
+        """
+        regex = pattern.replace('\\', '\\\\')  # ugly
+
+        for name, values in self.tokens.items():
+            del name
+            capture_token, pattern_regex, *unused = values
+            del unused
+            if capture_token:
+                regex = regex.replace(capture_token, pattern_regex)
+
+        return regex
+
+    def capture_pattern_input_regex(self, regex, string):
+        """Perform the regex match on the input path.
+
+        Use the input pattern converted to a regex and the input path to create a match
+        object.
+        """
+        match = re.finditer(regex, string)
+        for key, value in match.groupdict().items():
+            self.tokens[key][3] = value
+
+    @property
+    def data(self):
+        """Get the raw dictionary of nested listed."""
+        return self.tokens
+
+
 class SavePresetWindow(QtWidgets.QDialog):
     """View to confirm name of preset before saving."""
 
@@ -1054,27 +1127,33 @@ class PathTranslator:
         self.path = None
         self.load_path()
 
-        # Generate dict containing token names, shorthand, and values
-        self.tokens_input = None
-        self.generate_tokens_input()
+        # Tokens
+        self.tokens = TokenStore(self.path)
 
-        self.tokens_output = None
-        self.generate_tokens_output()
+        # Generate dict containing token names, shorthand, and values
+#       self.tokens_input = None
+#       self.generate_tokens_input()
+
+#       self.tokens_output = None
+#       self.generate_tokens_output()
 
         # Load the input pattern
         self.pattern_input = None
         self.load_pattern_input()
 
         # Translate the input token pattern to a regex
-        self.pattern_input_regex = None
-        self.generate_pattern_input_regex()
+#       self.pattern_input_regex = None
+#       self.generate_pattern_input_regex()
 
-        self.pattern_input_regex_capture = None
-        self.capture_pattern_input_regex()
+#       self.pattern_input_regex_capture = None
+#       self.capture_pattern_input_regex()
 
         # Load the output pattern
         self.pattern_output = None
         self.load_pattern_output()
+
+        # Capture input tokens
+        self.tokens.capture_input_tokens(self.pattern_input, self.path)
 
         # Replace tokens to generate new folder name
         self.folder_new = None
@@ -1124,43 +1203,43 @@ class PathTranslator:
         user_folder = os.path.expanduser(SETTINGS_FOLDER)
         self.settings_file = os.path.join(user_folder, XML)
 
-    def generate_tokens_input(self):
-        """Generate dictionary of input pattern tokens with a list for each.
+#   def generate_tokens_input(self):
+#       """Generate dictionary of input pattern tokens with a list for each.
 
-        Each item has a list with the shorthand token, a token regex, and then the
-        default value.  Input tokens use curly braces to follow Flame standard
-        convention.
+#       Each item has a list with the shorthand token, a token regex, and then the
+#       default value.  Input tokens use curly braces to follow Flame standard
+#       convention.
 
-        {name : [ token, pattern_regex, value ], ...}
+#       {name : [ token, pattern_regex, value ], ...}
 
-        name = full name of the token
-        token = this is the shorthand used in the pattern. ie, {token}
-        pattern_regex = regex to extract the token data from the input path
-        value = starting value
-        """
-        self.tokens_input = {
-            'Root':
-                ['{root}', r'[A-Z]:\\', ''],
-            'Path':
-                ['{path}', r'(?P<Path>[a-zA-Z0-9_\.\-\\\/]+)', ''],
-        }
+#       name = full name of the token
+#       token = this is the shorthand used in the pattern. ie, {token}
+#       pattern_regex = regex to extract the token data from the input path
+#       value = starting value
+#       """
+#       self.tokens_input = {
+#           'Root':
+#               ['{root}', r'[A-Z]:\\', ''],
+#           'Path':
+#               ['{path}', r'(?P<Path>[a-zA-Z0-9_\.\-\\\/]+)', ''],
+#       }
 
-    def generate_tokens_output(self):
-        """Generate dictionary of output pattern tokens with a list for each.
+#   def generate_tokens_output(self):
+#       """Generate dictionary of output pattern tokens with a list for each.
 
-        Each item has a list with the shorthand token and a method or attribute to
-        return a value.  Output tokens use angle brackets to follow Flame standard
-        convention.
+#       Each item has a list with the shorthand token and a method or attribute to
+#       return a value.  Output tokens use angle brackets to follow Flame standard
+#       convention.
 
-        {name: [ token, value ], ...}
+#       {name: [ token, value ], ...}
 
-        name = full name of token
-        token = this is the shorthand used in the pattern. ie, <token>
-        value = method or attribute to return a value
-        """
-        self.tokens_output = {
-                'Path': ['<path>', self.get_token_output_path]
-        }
+#       name = full name of token
+#       token = this is the shorthand used in the pattern. ie, <token>
+#       value = method or attribute to return a value
+#       """
+#       self.tokens_output = {
+#               'Path': ['<path>', self.get_token_output_path]
+#       }
 
     def get_token_output_path(self):
         """Return path for the <path> token.
@@ -1196,32 +1275,32 @@ class PathTranslator:
         else:
             self.pattern_input = ''
 
-    def generate_pattern_input_regex(self):
-        r"""Generate a regex based on the input pattern tokens.
+#   def generate_pattern_input_regex(self):
+#       r"""Generate a regex based on the input pattern tokens.
 
-        This regex will be used to find matching folders.  Use the token regex if
-        available otherwise just token.
+#       This regex will be used to find matching folders.  Use the token regex if
+#       available otherwise just token.
 
-        for example, {path} would become [a-zA-Z0-9+\\
-        """
-        self.pattern_input_regex = self.pattern_input.replace('\\', '\\\\')  # ugly
+#       for example, {path} would become [a-zA-Z0-9+\\
+#       """
+#       self.pattern_input_regex = self.pattern_input.replace('\\', '\\\\')  # ugly
 
-        for name, values in self.tokens_input.items():
-            del name
-            token, pattern_regex, *unused = values
-            del unused
-            self.pattern_input_regex = self.pattern_input_regex.replace(
-                    token, pattern_regex)
+#       for name, values in self.tokens_input.items():
+#           del name
+#           token, pattern_regex, *unused = values
+#           del unused
+#           self.pattern_input_regex = self.pattern_input_regex.replace(
+#                   token, pattern_regex)
 
-    def capture_pattern_input_regex(self):
-        """Perform the regex match on the input path.
+#   def capture_pattern_input_regex(self):
+#       """Perform the regex match on the input path.
 
-        Use the input pattern converted to a regex and the input path to create a match
-        object.
-        """
-        self.pattern_input_regex_capture = re.match(
-                self.pattern_input_regex, self.path
-        )
+#       Use the input pattern converted to a regex and the input path to create a match
+#       object.
+#       """
+#       self.pattern_input_regex_capture = re.match(
+#               self.pattern_input_regex, self.path
+#       )
 
     def load_pattern_output(self):
         """Load output pattern from settings."""
