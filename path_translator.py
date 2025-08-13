@@ -515,33 +515,45 @@ class FlameMessageWindow(QtWidgets.QDialog):
 
 
 class FlameTokenPushButton(QtWidgets.QPushButton):
-    """Custom Qt Flame Token Push Button Widget v2.1
+    """Custom Qt Flame Token Push Button Widget v2.2
 
     button_name: Text displayed on button [str]
     token_dict: Dictionary defining tokens. {'Token Name': '<Token>'} [dict]
     token_dest: LineEdit that token will be applied to [object]
     button_width: (optional) default is 150 [int]
     button_max_width: (optional) default is 300 [int]
+    sort: (optional) sort the tokens before displaying [bool]
 
     Usage:
+
         token_dict = {'Token 1': '<Token1>', 'Token2': '<Token2>'}
         token_push_button = FlameTokenPushButton('Add Token', token_dict, token_dest)
     """
-    def __init__(self, button_name, token_dict, token_dest, button_width=110,
-                 button_max_width=300):
-        super().__init__()
 
-        self.setText(button_name)
+    def __init__(self, button_name, token_dict, token_dest, button_width=110,
+                 button_max_width=300, sort=False):
+        super().__init__()
+        self.button_name = button_name
+        self.token_dict = token_dict
+        self.token_dest = token_dest
+        self.button_width = button_width
+        self.button_max_width = button_max_width
+        self.sort = sort
+        self.init_button()
+        self.init_menu(self.token_dict)
+
+    def init_button(self):
+        self.setText(self.button_name)
         self.setMinimumHeight(28)
-        self.setMinimumWidth(button_width)
-        self.setMaximumWidth(button_max_width)
+        self.setMinimumWidth(self.button_width)
+        self.setMaximumWidth(self.button_max_width)
         self.setFocusPolicy(QtCore.Qt.NoFocus)
         self.setStyleSheet("""
             QPushButton {
                 color: rgb(154, 154, 154);
                 background-color: rgb(45, 55, 68);
                 border: none;
-                font: 14px 'Discreet';
+                font: 14px "Discreet";
                 padding-left: 6px;
                 text-align: left}
             QPushButton:hover {
@@ -550,40 +562,42 @@ class FlameTokenPushButton(QtWidgets.QPushButton):
                 color: rgb(106, 106, 106);
                 background-color: rgb(45, 55, 68);
                 border: none}
-            QPushButton::menu-indicator {
-                subcontrol-origin: padding;
-                subcontrol-position: center right}
             QToolTip {
                 color: rgb(170, 170, 170);
                 background-color: rgb(71, 71, 71);
                 border: 10px solid rgb(71, 71, 71)}""")
 
-        def token_action_menu():
+    def init_menu(self, token_dict):
+        """Create the dropdown menu of tokens."""
+        def insert_token(token):
+            for key, value in token_dict.items():
+                if key == token:
+                    token_name = value
+                    self.token_dest.insert(token_name)
 
-            def insert_token(token):
-                for key, value in token_dict.items():
-                    if key == token:
-                        token_name = value
-                        token_dest.insert(token_name)
-
-            # the lambda sorts aAbBcC instead of ABCabc
-            for key, value in sorted(token_dict.items(), key=lambda v: v[0].upper()):
-                del value
-                token_menu.addAction(key, partial(insert_token, key))
-
-        token_menu = QtWidgets.QMenu(self)
-        token_menu.setFocusPolicy(QtCore.Qt.NoFocus)
-        token_menu.setStyleSheet("""
+        self.token_menu = QtWidgets.QMenu(self)
+        self.token_menu.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.token_menu.setStyleSheet("""
             QMenu {
                 color: rgb(154, 154, 154);
                 background-color: rgb(45, 55, 68);
-                border: none; font: 14px 'Discreet'}
+                border: none; font: 14px "Discreet"}
             QMenu::item:selected {
                 color: rgb(217, 217, 217);
                 background-color: rgb(58, 69, 81)}""")
+        self.setMenu(self.token_menu)
 
-        self.setMenu(token_menu)
-        token_action_menu()
+        if self.sort:
+            # Sort by key. Lowercase precedes uppercase, before moving to next
+            # letter.  For example...  aa, AA, bb, BB, cc, CC.
+            tokens = sorted(token_dict.items(), key=lambda item: (item[0].upper(),
+                            item[0].isupper()))
+        else:
+            tokens = list(token_dict.items())
+
+        for name, token in tokens:
+            del token
+            self.token_menu.addAction(name, partial(insert_token, name))
 
 
 class SettingsStore:
@@ -867,9 +881,9 @@ class MainWindow(QtWidgets.QWidget):
             button_width=240)
         self.btn_path_clipboard.clicked.connect(self.signal_clipboard.emit)
         self.btn_tokens_input = FlameTokenPushButton(
-            'Add Token', {}, self.line_edit_pattern_input)
+            'Add Token', {}, self.line_edit_pattern_input, sort=True)
         self.btn_tokens_output = FlameTokenPushButton(
-            'Add Token', {}, self.line_edit_pattern_output)
+            'Add Token', {}, self.line_edit_pattern_output, sort=True)
         self.btn_ok = FlameButton(
             'Ok', self.signal_ok.emit, button_color='blue', button_width=110)
         self.btn_cancel = FlameButton(
@@ -1084,8 +1098,10 @@ class PathTranslator:
         self.main_window.presets = self.settings.get_preset_names()
         self.main_window.pattern_input = self.pattern_input
         self.main_window.pattern_output = self.pattern_output
-        self.main_window.tokens = {key: values[0] for
-                                   key, values in self.tokens_input.items()}
+        self.main_window.tokens_input = {key: values[0] for
+                                         key, values in self.tokens_input.items()}
+        self.main_window.tokens_output = {key: values[0] for
+                                          key, values in self.tokens_output.items()}
         self.main_window.destination = self.folder_new
         self.save_window = SavePresetWindow(self.main_window)
         self.main_window.show()
