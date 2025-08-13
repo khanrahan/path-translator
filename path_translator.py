@@ -689,27 +689,27 @@ class SettingsStore:
         """Return a list of all the preset names."""
         return [preset.find('name').text for preset in self.get_presets()]
 
-    def add_preset(self, name=None, find=None, replace=None):
+    def add_preset(self, name=None, pattern_input=None, pattern_output=None):
         """Add preset Element object to the presets Element Tree."""
         preset = ETree.Element('preset')
 
         preset_name = ETree.SubElement(preset, 'name')
         preset_name.text = name
 
-        preset_find = ETree.SubElement(preset, 'find')
-        preset_find.text = find
+        preset_find = ETree.SubElement(preset, 'pattern_input')
+        preset_find.text = pattern_input
 
-        preset_replace = ETree.SubElement(preset, 'replace')
-        preset_replace.text = replace
+        preset_replace = ETree.SubElement(preset, 'pattern_output')
+        preset_replace.text = pattern_output
 
         self.presets.append(preset)
 
-    def overwrite_preset(self, name=None, find=None, replace=None):
+    def overwrite_preset(self, name=None, pattern_input=None, pattern_output=None):
         """Replace pattern in presets XML tree then save to XML file."""
         for preset in self.get_presets():
             if preset.find('name').text == name:
-                preset.find('find').text = find
-                preset.find('replace').text = replace
+                preset.find('pattern_input').text = pattern_input
+                preset.find('pattern_output').text = pattern_output
 
     def delete(self, preset):
         """Remove preset Element from presets Element Tree."""
@@ -1266,17 +1266,6 @@ class PathTranslator:
             self.main_window.presets = self.settings.get_preset_names()
             self.main_window.preset = self.save_window.name
 
-    def get_selected_preset(self):
-        """Get preset that should be displayed or return empty string."""
-        try:
-            selected_preset = (
-                    self.settings_xml_presets.findall('preset')[0].get('name')
-            )
-        except IndexError:  # if findall() returns empty list
-            selected_preset = ''
-
-        return selected_preset
-
     def clipboard_button(self):
         """Update UI when Clipboard Contents button is pressed."""
         if self.main_window.clipboard_enabled:
@@ -1298,23 +1287,21 @@ class PathTranslator:
 
     def update_pattern(self):
         """Update pattern when preset is changed."""
-        preset_name = self.btn_preset.text()
+        preset_name = self.main_window.preset
 
         if preset_name:  # might be empty str if all presets were deleted
-            for preset in self.settings_xml_presets.findall('preset'):
+            for preset in self.settings.get_presets():
                 if preset.get('name') == preset_name:
                     if preset.find('clipboard_contents').text == 'true':
                         self.load_path_from_clipboard()
-                        self.line_edit_path.setText(self.path)
-                        self.line_edit_path.setEnabled(False)
-                        self.btn_path_clipboard.setChecked(True)
+                        self.main_window.path = self.path
+                        self.main_window.path_enabled = False
+                        self.main_window.clipboard_enabled = True
                     else:
-                        self.line_edit_path.setEnabled(True)
-                        self.btn_path_clipboard.setChecked(False)
-                    self.line_edit_pattern_input.setText(
-                            preset.find('pattern_input').text)
-                    self.line_edit_pattern_output.setText(
-                            preset.find('pattern_output').text)
+                        self.main_window.path_enabled = True
+                        self.main_window.clipboard_enabled = False
+                    self.main_window.pattern_input = preset.find('pattern_input').text
+                    self.main_window.pattern_output = preset.find('pattern_output').text
                     break  # should not be any duplicates
 
     def preset_delete_button(self):
@@ -1323,7 +1310,7 @@ class PathTranslator:
                 'Confirm Operation', 'confirm', 'Are you sure want to'
                 + ' permanently delete this preset?' + '<br/>' + 'This operation'
                 + ' cannot be undone.'):
-            preset_name = self.btn_preset.text()
+            preset_name = self.main_window.preset
 
             for preset in self.settings.get_presets():
                 if preset.fine('name').text == preset_name:
@@ -1338,7 +1325,7 @@ class PathTranslator:
         self.settings.reload()
         self.main_window.presets = self.settings.get_preset_names()
         self.main_window.preset = self.settings.get_preset_names()[0]
-        self.update_preset()
+        self.update_pattern()
 
     def ok_button(self):
         """Triggered when the Okay button at the bottom is pressed."""
