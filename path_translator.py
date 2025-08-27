@@ -37,6 +37,7 @@ To Install:
     /opt/Autodesk/user/<user name>/python
 """
 
+import datetime as dt
 import os
 import re
 import xml.etree.ElementTree as ETree
@@ -703,12 +704,21 @@ class SettingsStore:
         """Return a list of all the preset names."""
         return [preset.find('name').text for preset in self.get_presets()]
 
-    def add_preset(self, name=None, pattern_input=None, pattern_output=None):
+    def add_preset(
+        self,
+        name=None,
+        clipboard_contents=False,
+        pattern_input=None,
+        pattern_output=None
+    ):
         """Add preset Element object to the presets Element Tree."""
         preset = ETree.Element('preset')
 
         preset_name = ETree.SubElement(preset, 'name')
         preset_name.text = name
+
+        preset_clipboard = ETree.SubElement(preset, 'clipboard_contents')
+        preset_clipboard.text = str(clipboard_contents).lower()
 
         preset_find = ETree.SubElement(preset, 'pattern_input')
         preset_find.text = pattern_input
@@ -718,10 +728,17 @@ class SettingsStore:
 
         self.presets.append(preset)
 
-    def overwrite_preset(self, name=None, pattern_input=None, pattern_output=None):
+    def overwrite_preset(
+        self,
+        name=None,
+        clipboard_contents=False,
+        pattern_input=None,
+        pattern_output=None
+    ):
         """Replace pattern in presets XML tree then save to XML file."""
         for preset in self.get_presets():
             if preset.find('name').text == name:
+                preset.find('clipboard_contents').text = str(clipboard_contents).lower()
                 preset.find('pattern_input').text = pattern_input
                 preset.find('pattern_output').text = pattern_output
 
@@ -741,45 +758,41 @@ class SettingsStore:
         )
 
 
-class TokenStore:
-    """Store all of the available tokens for the passed in Flame object."""
+class InputTokenStore:
+    """Store all of the tokens found in the string.
 
-    def __init__(self, flame_object, epoch=None):
-        """Initialize the instance.
+    By convention in Flame, input tokens are wrapped with curly braces, ie {token}.
+    """
+
+    def __init__(self, pattern, string):
+        """Inits InputTokenStore.
 
         Args:
-            flame_object: Flame API object
-            epoch: A date time object.  Useful to have all tokens referencing the exact
-                same moment, instead of being very verry verrry slightly offset.
+            pattern: A string containing tokens to interpret the input.
+            string: The string to extract the tokens from.
         """
-        self.flame_object = flame_object
-        self.now = epoch
+        self.pattern = pattern
+        self.string = string
         self.tokens = {}
-        self.get_tokens()
-        self.capture_pattern = None
-        self.capture_regex = None
+        self.init_tokens()
+        self.capture_tokens()
 
-    def get_tokens(self):
-        """Get all available tokens: generic and object specific."""
-        self.get_tokens_generic()
+    def init_tokens(self):
+        """Initialize the dict containing all of the token information.
 
-    def get_tokens_generic(self):
-        """Populate the token list."""
+        Included is their names, tokens, their corresponding regex, and the (not yet)
+        captured result.
+        """
         self.tokens['Root'] = ['{root}', r'[A-Z]:\\', '<root>', '']
         self.tokens['Path'] = [
             '{path}', r'(?P<Path>[a-zA-Z0-9_\.\-\\\/]+)', '<path>', '']
 
-    def capture_input_tokens(self, pattern, string):
-        """
-        pattern:
-            aseembled regex pattern to perform capture on string
-        string:
-            string to perform the regex on.
-        """
-        regex = self.generate_capture_regex(pattern)
-        self.capture_pattern_input_regex(regex, string)
+    def capture_tokens(self):
+        """Generate the regex and then perform the capture."""
+        regex = self.generate_capture_regex()
+        self.capture_pattern_input_regex(regex)
 
-    def generate_capture_regex(self, pattern):
+    def generate_capture_regex(self):
         r"""Generate a regex based on the input pattern tokens.
 
         This regex will be used to find matching folders.  Use the token regex if
@@ -787,7 +800,7 @@ class TokenStore:
 
         for example, {path} would become [a-zA-Z0-9+\\
         """
-        regex = pattern.replace('\\', '\\\\')  # ugly
+        regex = self.pattern.replace('\\', '\\\\')  # ugly
 
         for name, values in self.tokens.items():
             del name
@@ -798,15 +811,70 @@ class TokenStore:
 
         return regex
 
-    def capture_pattern_input_regex(self, regex, string):
+    def capture_pattern_input_regex(self, regex):
         """Perform the regex match on the input path.
 
         Use the input pattern converted to a regex and the input path to create a match
         object.
         """
-        match = re.finditer(regex, string)
-        for key, value in match.groupdict().items():
-            self.tokens[key][3] = value
+        for match in re.finditer(regex, self.string):
+            if match:
+                for key, value in match.groupdict().items():
+                    self.tokens[key][3] = value
+
+    @property
+    def data(self):
+        """Get the raw dictionary of nested listed."""
+        return self.tokens
+
+
+class TokenStore:
+    """Store all of the available tokens for the passed in Flame object."""
+
+    def __init__(self, epoch=None, input_tokens=None):
+        """Initialize the instance.
+
+        Args:
+            flame_object: Flame API object
+            epoch: A date time object.  Useful to have all tokens referencing the exact
+                same moment, instead of being very verry verrry slightly offset.
+            input_tokens: Dict of separately captured tokens.
+        """
+        self.now = epoch
+        self.tokens = {}
+        self.input_tokens = input_tokens
+        self.get_tokens()
+
+    def get_tokens(self):
+        """Get all available tokens: generic and object specific."""
+        self.get_tokens_generic()
+        self.append_input_tokens()
+
+    def get_tokens_generic(self):
+        """Populate the token list."""
+        self.tokens['am/pm'] = ['<pp>', self.now.strftime('%p').lower()]
+        self.tokens['AM/PM'] = ['<PP>', self.now.strftime('%p').upper()]
+        self.tokens['Day'] = ['<DD>', self.now.strftime('%d')]
+        self.tokens['Hour (12hr)'] = ['<hh>', self.now.strftime('%I')]
+        self.tokens['Hour (24hr)'] = ['<HH>', self.now.strftime('%H')]
+        self.tokens['Minute'] = ['<mm>', self.now.strftime('%M')]
+        self.tokens['Month'] = ['<MM>', self.now.strftime('%m')]
+        self.tokens['Project'] = ['<project>', flame.project.current_project.name]
+        self.tokens['User'] = ['<user>', flame.users.current_user.name]
+        self.tokens['Year (YYYY)'] = ['<YYYY>', self.now.strftime('%Y')]
+        self.tokens['Year (YY)'] = ['<YY>', self.now.strftime('%y')]
+
+    def append_input_tokens(self):
+        """Append input tokens to the TokenStore.
+
+        Input tokens are created using InputTokenStore.  They extract tokens from paths
+        or names using curly braces, ie {token}.
+        """
+        if self.input_tokens:
+            for name, [input_token, regex, token, value] in self.input_tokens.items():
+                del input_token
+                del regex
+                self.tokens[name] = [token, value]
 
     @property
     def data(self):
@@ -1116,7 +1184,7 @@ class PathTranslator:
         self.message(TITLE_VERSION)
         self.message(f'Script called from {__file__}')
 
-        self.selection = selection
+        del selection
 
         # Load settings
         self.settings_file = None
@@ -1127,41 +1195,38 @@ class PathTranslator:
         self.path = None
         self.load_path()
 
-        # Tokens
-        self.tokens = TokenStore(self.path)
-
-        # Generate dict containing token names, shorthand, and values
-#       self.tokens_input = None
-#       self.generate_tokens_input()
-
-#       self.tokens_output = None
-#       self.generate_tokens_output()
-
         # Load the input pattern
         self.pattern_input = None
         self.load_pattern_input()
-
-        # Translate the input token pattern to a regex
-#       self.pattern_input_regex = None
-#       self.generate_pattern_input_regex()
-
-#       self.pattern_input_regex_capture = None
-#       self.capture_pattern_input_regex()
 
         # Load the output pattern
         self.pattern_output = None
         self.load_pattern_output()
 
-        # Capture input tokens
-        self.tokens.capture_input_tokens(self.pattern_input, self.path)
+        # Tokens
+        self.input_tokens = InputTokenStore(self.pattern_input, self.path)
+        self.now = dt.datetime.now()
+        self.tokens = TokenStore(epoch=self.now, input_tokens=self.input_tokens.data)
 
         # Replace tokens to generate new folder name
         self.folder_new = None
         self.generate_folder_new()
 
-        # Windows
+        # Windows Values
         self.parent_window = self.get_flame_main_window()
         self.main_window = MainWindow(self.parent_window)
+        self.main_window.preset = (self.settings.get_preset_names()[0] if
+                                   self.settings.get_preset_names() else None)
+        self.main_window.presets = self.settings.get_preset_names()
+        self.main_window.pattern_input = self.pattern_input
+        self.main_window.pattern_output = self.pattern_output
+        self.main_window.tokens_input = {key: values[0] for
+                                         key, values in self.input_tokens.data.items()}
+        self.main_window.tokens_output = {key: values[0] for
+                                          key, values in self.tokens.data.items()}
+        self.main_window.destination = self.folder_new
+
+        # Windows Connects
         self.main_window.signal_preset.connect(self.update_pattern)
         self.main_window.signal_save.connect(self.preset_save_button)
         self.main_window.signal_delete.connect(self.preset_delete_button)
@@ -1172,16 +1237,7 @@ class PathTranslator:
         self.main_window.signal_ok.connect(self.ok_button)
         self.main_window.signal_cancel.connect(self.cancel_button)
 
-        self.main_window.preset = (self.settings.get_preset_names()[0] if
-                                   self.settings.get_preset_names() else None)
-        self.main_window.presets = self.settings.get_preset_names()
-        self.main_window.pattern_input = self.pattern_input
-        self.main_window.pattern_output = self.pattern_output
-        self.main_window.tokens_input = {key: values[0] for
-                                         key, values in self.tokens_input.items()}
-        self.main_window.tokens_output = {key: values[0] for
-                                          key, values in self.tokens_output.items()}
-        self.main_window.destination = self.folder_new
+        # Windows Parent & Show
         self.save_window = SavePresetWindow(self.main_window)
         self.main_window.show()
 
@@ -1203,61 +1259,12 @@ class PathTranslator:
         user_folder = os.path.expanduser(SETTINGS_FOLDER)
         self.settings_file = os.path.join(user_folder, XML)
 
-#   def generate_tokens_input(self):
-#       """Generate dictionary of input pattern tokens with a list for each.
-
-#       Each item has a list with the shorthand token, a token regex, and then the
-#       default value.  Input tokens use curly braces to follow Flame standard
-#       convention.
-
-#       {name : [ token, pattern_regex, value ], ...}
-
-#       name = full name of the token
-#       token = this is the shorthand used in the pattern. ie, {token}
-#       pattern_regex = regex to extract the token data from the input path
-#       value = starting value
-#       """
-#       self.tokens_input = {
-#           'Root':
-#               ['{root}', r'[A-Z]:\\', ''],
-#           'Path':
-#               ['{path}', r'(?P<Path>[a-zA-Z0-9_\.\-\\\/]+)', ''],
-#       }
-
-#   def generate_tokens_output(self):
-#       """Generate dictionary of output pattern tokens with a list for each.
-
-#       Each item has a list with the shorthand token and a method or attribute to
-#       return a value.  Output tokens use angle brackets to follow Flame standard
-#       convention.
-
-#       {name: [ token, value ], ...}
-
-#       name = full name of token
-#       token = this is the shorthand used in the pattern. ie, <token>
-#       value = method or attribute to return a value
-#       """
-#       self.tokens_output = {
-#               'Path': ['<path>', self.get_token_output_path]
-#       }
-
-    def get_token_output_path(self):
-        """Return path for the <path> token.
-
-        Converts backslashes on the captured string using the input token path to
-        backslashes on the output pattern path.
-        """
-        try:
-            result = self.pattern_input_regex_capture.group('Path').replace('\\', '/')
-        except (AttributeError, IndexError):
-            result = ''
-        return result
-
     def load_path(self):
         """Load the input path from the clipboard contents or empty str."""
-        if self.settings.get_preset_names():
-            if self.settings.load_preset_by_index_element(0, 'clipboard_contents') == 'true':
-                self.load_path_from_clipboard()
+        if (self.settings.get_preset_names() and
+            self.settings.load_preset_by_index_element(
+                0, 'clipboard_contents') == 'true'):
+            self.load_path_from_clipboard()
         else:
             self.path = ''
 
@@ -1275,33 +1282,6 @@ class PathTranslator:
         else:
             self.pattern_input = ''
 
-#   def generate_pattern_input_regex(self):
-#       r"""Generate a regex based on the input pattern tokens.
-
-#       This regex will be used to find matching folders.  Use the token regex if
-#       available otherwise just token.
-
-#       for example, {path} would become [a-zA-Z0-9+\\
-#       """
-#       self.pattern_input_regex = self.pattern_input.replace('\\', '\\\\')  # ugly
-
-#       for name, values in self.tokens_input.items():
-#           del name
-#           token, pattern_regex, *unused = values
-#           del unused
-#           self.pattern_input_regex = self.pattern_input_regex.replace(
-#                   token, pattern_regex)
-
-#   def capture_pattern_input_regex(self):
-#       """Perform the regex match on the input path.
-
-#       Use the input pattern converted to a regex and the input path to create a match
-#       object.
-#       """
-#       self.pattern_input_regex_capture = re.match(
-#               self.pattern_input_regex, self.path
-#       )
-
     def load_pattern_output(self):
         """Load output pattern from settings."""
         if self.settings.get_preset_names():
@@ -1315,10 +1295,13 @@ class PathTranslator:
         """Replace output path tokens with values."""
         result = self.pattern_output
 
-        for name, values in self.tokens_output.items():
+        for name, values in self.tokens.data.items():
             del name
             token, value = values
-            result = result.replace(token, value())
+            result = result.replace(token, value)
+
+        # ensure all slashes are forward
+        result = result.replace('\\', '/')
 
         if os.path.splitext(result)[1]:
             self.folder_new = os.path.dirname(result)
@@ -1337,6 +1320,7 @@ class PathTranslator:
                     + 'This operation cannot be undone.'):
                 self.settings.overwrite_preset(
                         name=self.save_window.name,
+                        clipboard_contents=self.main_window.clipboard_enabled,
                         pattern_input=self.pattern_input,
                         pattern_output=self.pattern_output,
                 )
@@ -1344,6 +1328,7 @@ class PathTranslator:
             if not duplicate:
                 self.settings.add_preset(
                         name=self.save_window.name,
+                        clipboard_contents=self.main_window.clipboard_enabled,
                         pattern_input=self.pattern_input,
                         pattern_output=self.pattern_output,
                 )
@@ -1375,8 +1360,9 @@ class PathTranslator:
         self.path = self.main_window.path
         self.pattern_input = self.main_window.pattern_input
         self.pattern_output = self.main_window.pattern_output
-        self.generate_pattern_input_regex()
-        self.capture_pattern_input_regex()
+        self.input_tokens = InputTokenStore(self.pattern_input, self.path)
+        self.now = dt.datetime.now()
+        self.tokens = TokenStore(epoch=self.now, input_tokens=self.input_tokens.data)
         self.generate_folder_new()
         self.main_window.destination = self.folder_new
 
@@ -1386,7 +1372,7 @@ class PathTranslator:
 
         if preset_name:  # might be empty str if all presets were deleted
             for preset in self.settings.get_presets():
-                if preset.get('name') == preset_name:
+                if preset.find('name').text == preset_name:
                     if preset.find('clipboard_contents').text == 'true':
                         self.load_path_from_clipboard()
                         self.main_window.path = self.path
@@ -1408,7 +1394,7 @@ class PathTranslator:
             preset_name = self.main_window.preset
 
             for preset in self.settings.get_presets():
-                if preset.fine('name').text == preset_name:
+                if preset.find('name').text == preset_name:
                     self.settings.delete(preset)
                     self.message(
                         f'{preset_name} preset deleted from ' +
@@ -1431,8 +1417,7 @@ class PathTranslator:
             self.message(f'MediaHub path changed to {self.folder_new}')
             self.message('Done!')
         else:
-            FlameMessageWindow('Error', 'error',
-                    f'{self.folder_new} does not exist.')
+            FlameMessageWindow('Error', 'error', f'{self.folder_new} does not exist.')
 
     def cancel_button(self):
         """Triggered when the Cancel button at the bottom is pressed."""
