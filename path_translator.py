@@ -2,13 +2,13 @@ r"""
 Script Name: Path Translator
 Written By: Kieran Hanrahan
 
-Script Version: 2.0.0
+Script Version: 2.1.0
 Flame Version: 2025
 
 URL: http://www.github.com/khanrahan/path-translator
 
 Creation Date: 02.10.24
-Update Date: 02.27.24
+Update Date: 09.05.25
 
 Description:
 
@@ -37,6 +37,7 @@ To Install:
     /opt/Autodesk/user/<user name>/python
 """
 
+import datetime as dt
 import os
 import re
 import xml.etree.ElementTree as ETree
@@ -46,12 +47,12 @@ import flame
 from PySide6 import QtCore, QtGui, QtWidgets
 
 TITLE = 'Path Translator'
-VERSION_INFO = (2, 0, 0)
+VERSION_INFO = (2, 1, 0)
 VERSION = '.'.join([str(num) for num in VERSION_INFO])
 TITLE_VERSION = f'{TITLE} v{VERSION}'
 MESSAGE_PREFIX = '[PYTHON]'
 
-CONFIG_FOLDER = '~/.config/path-translator'
+SETTINGS_FOLDER = '~/.config/path-translator'
 XML = 'path_translator.xml'
 
 
@@ -515,33 +516,45 @@ class FlameMessageWindow(QtWidgets.QDialog):
 
 
 class FlameTokenPushButton(QtWidgets.QPushButton):
-    """Custom Qt Flame Token Push Button Widget v2.1
+    """Custom Qt Flame Token Push Button Widget v2.2
 
     button_name: Text displayed on button [str]
     token_dict: Dictionary defining tokens. {'Token Name': '<Token>'} [dict]
     token_dest: LineEdit that token will be applied to [object]
     button_width: (optional) default is 150 [int]
     button_max_width: (optional) default is 300 [int]
+    sort: (optional) sort the tokens before displaying [bool]
 
     Usage:
+
         token_dict = {'Token 1': '<Token1>', 'Token2': '<Token2>'}
         token_push_button = FlameTokenPushButton('Add Token', token_dict, token_dest)
     """
-    def __init__(self, button_name, token_dict, token_dest, button_width=110,
-                 button_max_width=300):
-        super().__init__()
 
-        self.setText(button_name)
+    def __init__(self, button_name, token_dict, token_dest, button_width=110,
+                 button_max_width=300, sort=False):
+        super().__init__()
+        self.button_name = button_name
+        self.token_dict = token_dict
+        self.token_dest = token_dest
+        self.button_width = button_width
+        self.button_max_width = button_max_width
+        self.sort = sort
+        self.init_button()
+        self.init_menu(self.token_dict)
+
+    def init_button(self):
+        self.setText(self.button_name)
         self.setMinimumHeight(28)
-        self.setMinimumWidth(button_width)
-        self.setMaximumWidth(button_max_width)
+        self.setMinimumWidth(self.button_width)
+        self.setMaximumWidth(self.button_max_width)
         self.setFocusPolicy(QtCore.Qt.NoFocus)
         self.setStyleSheet("""
             QPushButton {
                 color: rgb(154, 154, 154);
                 background-color: rgb(45, 55, 68);
                 border: none;
-                font: 14px 'Discreet';
+                font: 14px "Discreet";
                 padding-left: 6px;
                 text-align: left}
             QPushButton:hover {
@@ -550,224 +563,236 @@ class FlameTokenPushButton(QtWidgets.QPushButton):
                 color: rgb(106, 106, 106);
                 background-color: rgb(45, 55, 68);
                 border: none}
-            QPushButton::menu-indicator {
-                subcontrol-origin: padding;
-                subcontrol-position: center right}
             QToolTip {
                 color: rgb(170, 170, 170);
                 background-color: rgb(71, 71, 71);
                 border: 10px solid rgb(71, 71, 71)}""")
 
-        def token_action_menu():
+    def init_menu(self, token_dict):
+        """Create the dropdown menu of tokens."""
+        def insert_token(token):
+            for key, value in token_dict.items():
+                if key == token:
+                    token_name = value
+                    self.token_dest.insert(token_name)
 
-            def insert_token(token):
-                for key, value in token_dict.items():
-                    if key == token:
-                        token_name = value
-                        token_dest.insert(token_name)
-
-            # the lambda sorts aAbBcC instead of ABCabc
-            for key, value in sorted(token_dict.items(), key=lambda v: v[0].upper()):
-                del value
-                token_menu.addAction(key, partial(insert_token, key))
-
-        token_menu = QtWidgets.QMenu(self)
-        token_menu.setFocusPolicy(QtCore.Qt.NoFocus)
-        token_menu.setStyleSheet("""
+        self.token_menu = QtWidgets.QMenu(self)
+        self.token_menu.setFocusPolicy(QtCore.Qt.NoFocus)
+        self.token_menu.setStyleSheet("""
             QMenu {
                 color: rgb(154, 154, 154);
                 background-color: rgb(45, 55, 68);
-                border: none; font: 14px 'Discreet'}
+                border: none; font: 14px "Discreet"}
             QMenu::item:selected {
                 color: rgb(217, 217, 217);
                 background-color: rgb(58, 69, 81)}""")
+        self.setMenu(self.token_menu)
 
-        self.setMenu(token_menu)
-        token_action_menu()
+        if self.sort:
+            # Sort by key. Lowercase precedes uppercase, before moving to next
+            # letter.  For example...  aa, AA, bb, BB, cc, CC.
+            tokens = sorted(token_dict.items(), key=lambda item: (item[0].upper(),
+                            item[0].isupper()))
+        else:
+            tokens = list(token_dict.items())
+
+        for name, token in tokens:
+            del token
+            self.token_menu.addAction(name, partial(insert_token, name))
 
 
-class PathTranslator:
-    """Convert a path from one system to a valid path on another system.
+class SettingsStore:
+    """Store settings as XML.
 
-    Mostly useful to convert windows paths to posix paths, but could also be used for
-    posix paths on machines that have different mount points.
+    The setting XML is structured as below:
+
+    <settings>
+        <script_name>Script Name
+            <version>X.X.X
+                <presets>
+                    <preset>
+                    </preset>
+                </preset>
+            </version>
+        </script_name>
+    </settings>
     """
-    def __init__(self, selection):
-        """Create object with necessary attributes."""
-        self.message(TITLE_VERSION)
-        self.message(f'Script called from {__file__}')
 
-        self.selection = selection
+    def __init__(self, file):
+        """Initialize the instance.
 
-        # Load settings & presets
-        self.settings_xml_folder = os.path.expanduser(CONFIG_FOLDER)
-        self.settings_xml_file = os.path.join(self.settings_xml_folder, XML)
+        Args:
+            file: Filepath of existing or to be created XML file of settings.
+        """
+        self.file = file
+        self.root = None
+        self.tree = None
+        self.presets = None
+        self.load()
 
-        self.settings_xml_tree = None
-        self.load_settings_tree()
+    def load(self):
+        """Load preset file if preset and store XML tree & root."""
+        if os.path.isfile(self.file):
+            self.tree = ETree.parse(self.file)
+        else:
+            self.init_tree()
 
-        self.settings_xml_root = None
         self.get_settings_root()
-
-        self.settings_xml_presets = None
         self.get_settings_presets()
 
-        # Load starting path
-        self.path = None
-        self.load_path()
+    def reload(self):
+        """Reload the file and store root & presets again."""
+        self.load()
+        self.get_settings_root()
+        self.get_settings_presets()
 
-        # Generate dict containing token names, shorthand, and values
-        self.tokens_input = None
-        self.generate_tokens_input()
+    def init_tree(self):
+        """Create a new empty tree if one does not already exists."""
+        settings = ETree.Element('settings')
 
-        self.tokens_output = None
-        self.generate_tokens_output()
+        name = ETree.SubElement(settings, 'script_name')
+        name.text = TITLE
 
-        # Load the input pattern
-        self.pattern_input = None
-        self.load_pattern_input()
+        version = ETree.SubElement(name, 'version')
+        version.text = VERSION
 
-        # Translate the input token pattern to a regex
-        self.pattern_input_regex = None
-        self.generate_pattern_input_regex()
-
-        self.pattern_input_regex_capture = None
-        self.capture_pattern_input_regex()
-
-        # Load the output pattern
-        self.pattern_output = None
-        self.load_pattern_output()
-
-        # Replace tokens to generate new folder name
-        self.folder_new = None
-        self.generate_folder_new()
-
-        # Starting dimensions
-        self.window_x = 1000
-        self.window_y = 130
-        self.save_window_x = 500
-        self.save_window_y = 100
-
-        self.main_window()
-
-    @staticmethod
-    def message(string):
-        """Print message to shell window and append global MESSAGE_PREFIX."""
-        print(' '.join([MESSAGE_PREFIX, string]))
-
-    def load_settings_tree(self):
-        """Load preset file if present and store XML tree & root."""
-        if os.path.isfile(self.settings_xml_file):
-            parser = ETree.XMLParser(encoding='UTF-8')
-            self.settings_xml_tree = ETree.parse(self.settings_xml_file, parser=parser)
-        else:
-            settings = ETree.Element('settings')
-
-            name = ETree.SubElement(settings, 'script_name')
-            name.text = TITLE
-
-            version = ETree.SubElement(name, 'version')
-            version.text = VERSION
-
-            presets = ETree.SubElement(version, 'presets')
-            self.settings_xml_tree = ETree.ElementTree(settings)
+        presets = ETree.SubElement(version, 'presets')
+        self.tree = ETree.ElementTree(settings)
 
     def get_settings_root(self):
         """Store the root object for the ElementTree of settings."""
-        self.settings_xml_root = self.settings_xml_tree.getroot()
+        self.root = self.tree.getroot()
 
     def get_settings_presets(self):
-        """Store the element object for the ElementTree of presets."""
-        self.settings_xml_presets = self.settings_xml_root.find(
-                'script_name/version/presets')
+        """Store the element object for the ElementTree of settings."""
+        self.presets = self.root.find('script_name/version/presets')
 
-    def generate_tokens_input(self):
-        """Generate dictionary of input pattern tokens with a list for each.
-
-        Each item has a list with the shorthand token, a token regex, and then the
-        default value.  Input tokens use curly braces to follow Flame standard
-        convention.
-
-        {name : [ token, pattern_regex, value ], ...}
-
-        name = full name of the token
-        token = this is the shorthand used in the pattern. ie, {token}
-        pattern_regex = regex to extract the token data from the input path
-        value = starting value
-        """
-        self.tokens_input = {
-            'Root':
-                ['{root}', r'[A-Z]:\\', ''],
-            'Path':
-                ['{path}', r'(?P<Path>[a-zA-Z0-9_\.\-\\\/]+)', ''],
-        }
-
-    def generate_tokens_output(self):
-        """Generate dictionary of output pattern tokens with a list for each.
-
-        Each item has a list with the shorthand token and a method or attribute to
-        return a value.  Output tokens use angle brackets to follow Flame standard
-        convention.
-
-        {name: [ token, value ], ...}
-
-        name = full name of token
-        token = this is the shorthand used in the pattern. ie, <token>
-        value = method or attribute to return a value
-        """
-        self.tokens_output = {
-                'Path': ['<path>', self.get_token_output_path]
-        }
-
-    def get_token_output_path(self):
-        """Return path for the <path> token.
-
-        Converts backslashes on the captured string using the input token path to
-        backslashes on the output pattern path.
-        """
-        try:
-            result = self.pattern_input_regex_capture.group('Path').replace('\\', '/')
-        except (AttributeError, IndexError):
-            result = ''
-        return result
+    def get_presets(self):
+        """Return a list of preset Element objects."""
+        return self.presets.findall('preset')
 
     def load_preset_by_index_element(self, index, element):
-        """Load element from preset located at index.
+        """Convert None to empty string.
 
-        Convert None to empty string.  ElementTree saves empty string as None.
-
-        Returns str
+        ElementTree saves empty string as None.
         """
         preset_element = (
-            self.settings_xml_presets.findall('preset')[index].find(element).text)
+            self.presets.findall('preset')[index].find(element).text)
 
         if preset_element is None:
             preset_element = ''
 
         return preset_element
 
-    def load_path(self):
-        """Load the input path from the clipboard contents or empty str."""
-        if self.settings_xml_presets.findall('preset'):
-            if self.load_preset_by_index_element(0, 'clipboard_contents') == 'true':
-                self.load_path_from_clipboard()
-        else:
-            self.path = ''
+    def duplicate_check(self, preset_name):
+        """Check that preset to be saved would not be a duplicate."""
+        duplicate = False
 
-    def load_path_from_clipboard(self):
-        """Get clipboard contents."""
-        qt_app_instance = QtWidgets.QApplication.instance()
-        self.path = qt_app_instance.clipboard().text()  # raw string?
+        for preset in self.get_presets():
+            if preset.find('name').text == preset_name:
+                duplicate = True
 
-    def load_pattern_input(self):
-        """Load the first preset's pattern or use the default pattern."""
-        if self.settings_xml_presets.findall('preset'):
-            # load output pattern for first element in list of presets
-            self.pattern_input = self.load_preset_by_index_element(0, 'pattern_input')
-        else:
-            self.pattern_input = ''
+        return duplicate
 
-    def generate_pattern_input_regex(self):
+    def sort(self):
+        """Alphabetically sort presets by name attribute."""
+        self.presets[:] = sorted(
+            self.presets,
+            key=lambda preset: preset.find('name').text)
+
+    def get_preset_names(self):
+        """Return a list of all the preset names."""
+        return [preset.find('name').text for preset in self.get_presets()]
+
+    def add_preset(
+        self,
+        name=None,
+        clipboard_contents=False,
+        pattern_input=None,
+        pattern_output=None
+    ):
+        """Add preset Element object to the presets Element Tree."""
+        preset = ETree.Element('preset')
+
+        preset_name = ETree.SubElement(preset, 'name')
+        preset_name.text = name
+
+        preset_clipboard = ETree.SubElement(preset, 'clipboard_contents')
+        preset_clipboard.text = str(clipboard_contents).lower()
+
+        preset_find = ETree.SubElement(preset, 'pattern_input')
+        preset_find.text = pattern_input
+
+        preset_replace = ETree.SubElement(preset, 'pattern_output')
+        preset_replace.text = pattern_output
+
+        self.presets.append(preset)
+
+    def overwrite_preset(
+        self,
+        name=None,
+        clipboard_contents=False,
+        pattern_input=None,
+        pattern_output=None
+    ):
+        """Replace pattern in presets XML tree then save to XML file."""
+        for preset in self.get_presets():
+            if preset.find('name').text == name:
+                preset.find('clipboard_contents').text = str(clipboard_contents).lower()
+                preset.find('pattern_input').text = pattern_input
+                preset.find('pattern_output').text = pattern_output
+
+    def delete(self, preset):
+        """Remove preset Element from presets Element Tree."""
+        self.presets.remove(preset)
+
+    def save(self):
+        """Create folder path if necessary then write out the XML."""
+        if not os.path.exists(os.path.dirname(self.file)):
+            os.makedirs(os.path.dirname(self.file))
+
+        self.tree.write(
+            self.file,
+            encoding='UTF-8',
+            xml_declaration=True
+        )
+
+
+class InputTokenStore:
+    """Store all of the tokens found in the string.
+
+    By convention in Flame, input tokens are wrapped with curly braces, ie {token}.
+    """
+
+    def __init__(self, pattern, string):
+        """Inits InputTokenStore.
+
+        Args:
+            pattern: A string containing tokens to interpret the input.
+            string: The string to extract the tokens from.
+        """
+        self.pattern = pattern
+        self.string = string
+        self.tokens = {}
+        self.init_tokens()
+        self.capture_tokens()
+
+    def init_tokens(self):
+        """Initialize the dict containing all of the token information.
+
+        Included is their names, tokens, their corresponding regex, and the (not yet)
+        captured result.
+        """
+        self.tokens['Root'] = ['{root}', r'[A-Z]:\\', '<root>', '']
+        self.tokens['Path'] = [
+            '{path}', r'(?P<Path>[a-zA-Z0-9_\.\-\\\/]+)', '<path>', '']
+
+    def capture_tokens(self):
+        """Generate the regex and then perform the capture."""
+        regex = self.generate_capture_regex()
+        self.capture_pattern_input_regex(regex)
+
+    def generate_capture_regex(self):
         r"""Generate a regex based on the input pattern tokens.
 
         This regex will be used to find matching folders.  Use the token regex if
@@ -775,198 +800,136 @@ class PathTranslator:
 
         for example, {path} would become [a-zA-Z0-9+\\
         """
-        self.pattern_input_regex = self.pattern_input.replace('\\', '\\\\')  # ugly
+        regex = self.pattern.replace('\\', '\\\\')  # ugly
 
-        for name, values in self.tokens_input.items():
+        for name, values in self.tokens.items():
             del name
-            token, pattern_regex, *unused = values
+            capture_token, pattern_regex, *unused = values
             del unused
-            self.pattern_input_regex = self.pattern_input_regex.replace(
-                    token, pattern_regex)
+            if capture_token:
+                regex = regex.replace(capture_token, pattern_regex)
 
-    def capture_pattern_input_regex(self):
+        return regex
+
+    def capture_pattern_input_regex(self, regex):
         """Perform the regex match on the input path.
 
         Use the input pattern converted to a regex and the input path to create a match
         object.
         """
-        self.pattern_input_regex_capture = re.match(
-                self.pattern_input_regex, self.path
-        )
+        for match in re.finditer(regex, self.string):
+            if match:
+                for key, value in match.groupdict().items():
+                    self.tokens[key][3] = value
 
-    def load_pattern_output(self):
-        """Load output pattern from settings."""
-        if self.settings_xml_presets.findall('preset'):
-            # load input pattern for first element in list of presets
-            self.pattern_output = self.load_preset_by_index_element(0, 'pattern_output')
-        else:
-            self.pattern_output = ''
+    @property
+    def data(self):
+        """Get the raw dictionary of nested listed."""
+        return self.tokens
 
-    def generate_folder_new(self):
-        """Replace output path tokens with values."""
-        result = self.pattern_output
 
-        for name, values in self.tokens_output.items():
-            del name
-            token, value = values
-            result = result.replace(token, value())
+class TokenStore:
+    """Store all of the available tokens for the passed in Flame object."""
 
-        if os.path.splitext(result)[1]:
-            self.folder_new = os.path.dirname(result)
-        else:
-            self.folder_new = os.path.join(result, '')
+    def __init__(self, epoch=None, input_tokens=None):
+        """Initialize the instance.
 
-    def save_preset_window(self):
-        """Smaller window with save dialog."""
+        Args:
+            flame_object: Flame API object
+            epoch: A date time object.  Useful to have all tokens referencing the exact
+                same moment, instead of being very verry verrry slightly offset.
+            input_tokens: Dict of separately captured tokens.
+        """
+        self.now = epoch
+        self.tokens = {}
+        self.input_tokens = input_tokens
+        self.get_tokens()
 
-        def check_preset_folder():
-            """Check that destination folder for preset XML file is available."""
-            result = False
+    def get_tokens(self):
+        """Get all available tokens: generic and object specific."""
+        self.get_tokens_generic()
+        self.append_input_tokens()
 
-            if os.path.exists(self.settings_xml_folder):
-                result = True
-            else:
-                try:
-                    os.makedirs(self.settings_xml_folder)
-                    result = True
-                except OSError:
-                    FlameMessageWindow(
-                        'Error', 'error',
-                        f'Could not create {self.settings_xml_folder}')
-            return result
+    def get_tokens_generic(self):
+        """Populate the token list."""
+        self.tokens['am/pm'] = ['<pp>', self.now.strftime('%p').lower()]
+        self.tokens['AM/PM'] = ['<PP>', self.now.strftime('%p').upper()]
+        self.tokens['Day'] = ['<DD>', self.now.strftime('%d')]
+        self.tokens['Hour (12hr)'] = ['<hh>', self.now.strftime('%I')]
+        self.tokens['Hour (24hr)'] = ['<HH>', self.now.strftime('%H')]
+        self.tokens['Minute'] = ['<mm>', self.now.strftime('%M')]
+        self.tokens['Month'] = ['<MM>', self.now.strftime('%m')]
+        self.tokens['Project'] = ['<project>', flame.project.current_project.name]
+        self.tokens['User'] = ['<user>', flame.users.current_user.name]
+        self.tokens['Year (YYYY)'] = ['<YYYY>', self.now.strftime('%Y')]
+        self.tokens['Year (YY)'] = ['<YY>', self.now.strftime('%y')]
 
-        def duplicate_check():
-            """Check that preset to be saved would not be a duplicate."""
-            duplicate = False
-            preset_name = self.line_edit_preset_name.text()
+    def append_input_tokens(self):
+        """Append input tokens to the TokenStore.
 
-            for preset in self.settings_xml_presets.findall('preset'):
-                if preset.get('name') == preset_name:
-                    duplicate = True
+        Input tokens are created using InputTokenStore.  They extract tokens from paths
+        or names using curly braces, ie {token}.
+        """
+        if self.input_tokens:
+            for name, [input_token, regex, token, value] in self.input_tokens.items():
+                del input_token
+                del regex
+                self.tokens[name] = [token, value]
 
-            return duplicate
+    @property
+    def data(self):
+        """Get the raw dictionary of nested listed."""
+        return self.tokens
 
-        def save_preset():
-            """Save new preset to XML file."""
-            # is the below taking the name from this window or the previous
-            new_preset = ETree.Element('preset', name=self.line_edit_preset_name.text())
 
-            new_clipboard_contents = ETree.SubElement(new_preset, 'clipboard_contents')
-            new_clipboard_contents.text = (
-                    str(self.btn_path_clipboard.isEnabled()).lower()
-            )
+class SavePresetWindow(QtWidgets.QDialog):
+    """View to confirm name of preset before saving."""
 
-            new_pattern = ETree.SubElement(new_preset, 'pattern_input')
-            new_pattern.text = self.pattern_input
+    def __init__(self, parent):
+        """Initialize the instance.
 
-            new_pattern = ETree.SubElement(new_preset, 'pattern_output')
-            new_pattern.text = self.pattern_output
+        Args:
+            parent: Pyside object to make this window a child of.
+        """
+        super().__init__(parent)
+        self.dimensions = {'x': 500, 'y': 100}
+        self.init_window()
 
-            self.settings_xml_presets.append(new_preset)
-            sort_presets()
+    @property
+    def name(self):
+        """Get the preset name."""
+        return self.line_edit_preset_name.text()
 
-            if check_preset_folder():
-                try:
-                    self.settings_xml_tree.write(
-                            self.settings_xml_file,
-                            encoding='UTF-8',
-                            xml_declaration=True
-                    )
+    @name.setter
+    def name(self, string):
+        """Set the present name."""
+        self.line_edit_preset_name.setText(string)
 
-                    self.message(f'{self.line_edit_preset_name.text()} preset saved' +
-                                 f' to {self.settings_xml_file}')
-                except OSError as err:
-                    raise err
-                    FlameMessageWindow(
-                        'Error', 'error',
-                        f'Check permissions on {self.settings_xml_file}')
+    def init_window(self):
+        """Initialize the window."""
+        self.setMinimumSize(
+                self.dimensions['x'], self.dimensions['y'])
 
-        def overwrite_preset():
-            """Replace pattern in presets XML tree then save to XML file."""
-            preset_name = self.line_edit_preset_name.text()
-
-            for preset in self.settings_xml_presets.findall('preset'):
-                if preset.get('name') == preset_name:
-                    preset.find('clipboard_contents').text = (
-                            str(self.btn_path_clipboard.isEnabled()).lower()
-                    )
-                    preset.find('pattern_input').text = (self.pattern_input)
-                    preset.find('pattern_output').text = (self.pattern_output)
-
-            try:
-                self.settings_xml_tree.write(
-                        self.settings_xml_file,
-                        encoding='UTF-8',
-                        xml_declaration=True
-                )
-
-                self.message(f'{self.line_edit_preset_name.text()} preset saved to ' +
-                             f'{self.settings_xml_file}')
-            except OSError:
-                FlameMessageWindow(
-                    'Error', 'error',
-                    f'Check permissions on {self.settings_xml_file}')
-
-        def sort_presets():
-            """Alphabetically sort presets by name attribute."""
-            self.settings_xml_presets[:] = sorted(
-                self.settings_xml_presets,
-                key=lambda child: (child.tag, child.get('name')))
-
-        def save_button():
-            """Triggered when the Save button at the bottom is pressed."""
-            duplicate = duplicate_check()
-
-            if duplicate and FlameMessageWindow(
-                    'Overwrite Existing Preset', 'confirm', 'Are you ' +
-                    'sure want to permanently overwrite this preset?' + '<br/>' +
-                    'This operation cannot be undone.'):
-                overwrite_preset()
-                self.btn_preset.populate_menu(
-                    [preset.get('name') for preset in
-                     self.settings_xml_presets.findall('preset')])
-                self.btn_preset.setText(self.line_edit_preset_name.text())
-                self.save_window.close()
-
-            if not duplicate:
-                save_preset()
-                self.btn_preset.populate_menu(
-                    [preset.get('name') for preset in
-                     self.settings_xml_presets.findall('preset')])
-                self.btn_preset.setText(self.line_edit_preset_name.text())
-                self.save_window.close()
-
-        def cancel_button():
-            """Triggered when the Cancel button at the bottom is pressed."""
-            self.save_window.close()
-
-        self.save_window = QtWidgets.QWidget()
-
-        self.save_window.setMinimumSize(self.save_window_x, self.save_window_y)
-
-        self.save_window.setStyleSheet('background-color: #272727')
-        self.save_window.setWindowTitle('Save Preset As...')
+        self.setStyleSheet('background-color: #272727')
+        self.setWindowTitle('Save Preset As...')
 
         # Center Window
-        resolution = QtGui.QGuiApplication.primaryScreen().availableGeometry()
-
-        self.save_window.move(
-            (resolution.width() / 2) - (self.save_window_x / 2),
-            (resolution.height() / 2) - (self.save_window_y / 2 + 44)
-        )
-
-        # Buttons
-        self.save_btn_save = FlameButton(
-            'Save', save_button, button_color='blue', button_width=110)
-        self.save_btn_cancel = FlameButton('Cancel', cancel_button, button_width=110)
+        resolution = QtGui.QGuiApplication.primaryScreen().screenGeometry()
+        self.move(
+            (resolution.width() / 2) - (self.dimensions['x'] / 2),
+            (resolution.height() / 2) - (self.dimensions['y'] / 2 + 44))
 
         # Labels
         self.label_preset_name = FlameLabel('Preset Name', 'normal')
-        self.label_preset_pattern_input = FlameLabel('Input Pattern', 'normal')
-        self.label_preset_pattern_output = FlameLabel('Output Pattern', 'normal')
 
         # Line Edits
-        self.line_edit_preset_name = FlameLineEdit(self.btn_preset.text())
+        self.line_edit_preset_name = FlameLineEdit('')
+
+        # Buttons
+        self.save_btn_cancel = FlameButton(
+            'Cancel', self.reject, button_width=110)
+        self.save_btn_save = FlameButton(
+            'Save', self.accept, button_color='blue', button_width=110)
 
         # Layout
         self.save_grid = QtWidgets.QGridLayout()
@@ -986,150 +949,37 @@ class PathTranslator:
         self.save_vbox.addSpacing(20)
         self.save_vbox.addLayout(self.save_hbox)
 
-        self.save_window.setLayout(self.save_vbox)
+        self.setLayout(self.save_vbox)
 
-        self.save_window.show()
 
-        return self.window
+class MainWindow(QtWidgets.QWidget):
+    """A view class for the main window."""
+    signal_preset = QtCore.Signal()
+    signal_save = QtCore.Signal()
+    signal_delete = QtCore.Signal()
+    signal_path = QtCore.Signal(str)
+    signal_clipboard = QtCore.Signal()
+    signal_pattern_input = QtCore.Signal(str)
+    signal_pattern_output = QtCore.Signal(str)
+    signal_ok = QtCore.Signal()
+    signal_cancel = QtCore.Signal()
 
-    def main_window(self):
-        """The main GUI window."""
-        def get_selected_preset():
-            """Get preset that should be displayed or return empty string."""
-            try:
-                selected_preset = (
-                        self.settings_xml_presets.findall('preset')[0].get('name')
-                )
-            except IndexError:  # if findall() returns empty list
-                selected_preset = ''
+    def __init__(self, parent_widget=None):
+        """Initialize the instance."""
+        super().__init__(parent=parent_widget)
+        self.init_window()
 
-            return selected_preset
+    def init_window(self):
+        """Create the pyside objects and layout the window."""
+        self.setMinimumSize(1000, 320)
+        self.setStyleSheet('background-color: #272727')
+        self.setWindowTitle(TITLE_VERSION)
 
-        def get_preset_names():
-            """Return just the names of the presets."""
-            try:
-                preset_names = [
-                    preset.get('name') for preset in
-                    self.settings_xml_presets.findall('preset')]
-            except IndexError:  # if findall() returns empty list
-                preset_names = []
+        # Delete the object once closed
+        self.setAttribute(QtCore.Qt.WA_DeleteOnClose)
 
-            return preset_names
-
-        def get_preset_clipboard_contents_state():
-            """Get the intended state of CLipboard button."""
-            if self.settings_xml_presets.findall('preset'):
-                if self.load_preset_by_index_element(0, 'clipboard_contents') == 'true':
-                    state = True
-            else:
-                state = False
-
-            return state
-
-        def toggle_clipboard_contents():
-            """Update UI when Clipboard Contents button is pressed."""
-            if self.line_edit_path.isEnabled():
-                self.line_edit_path.setEnabled(False)
-                self.load_path_from_clipboard()
-                self.line_edit_path.setText(self.path)
-            else:
-                self.line_edit_path.setEnabled(True)
-
-        def update_folder():
-            """Update folder when pattern is changed."""
-            self.path = self.line_edit_path.text()
-            self.pattern_input = self.line_edit_pattern_input.text()
-            self.pattern_output = self.line_edit_pattern_output.text()
-            self.generate_pattern_input_regex()
-            self.capture_pattern_input_regex()
-            self.generate_folder_new()
-            self.line_edit_folder.setText(self.folder_new)
-
-        def update_pattern():
-            """Update pattern when preset is changed."""
-            preset_name = self.btn_preset.text()
-
-            if preset_name:  # might be empty str if all presets were deleted
-                for preset in self.settings_xml_presets.findall('preset'):
-                    if preset.get('name') == preset_name:
-                        if preset.find('clipboard_contents').text == 'true':
-                            self.load_path_from_clipboard()
-                            self.line_edit_path.setText(self.path)
-                            self.line_edit_path.setEnabled(False)
-                            self.btn_path_clipboard.setChecked(True)
-                        else:
-                            self.line_edit_path.setEnabled(True)
-                            self.btn_path_clipboard.setChecked(False)
-                        self.line_edit_pattern_input.setText(
-                                preset.find('pattern_input').text)
-                        self.line_edit_pattern_output.setText(
-                                preset.find('pattern_output').text)
-                        break  # should not be any duplicates
-
-        def preset_delete_button():
-            """Triggered when the Delete button on the Preset line is pressed."""
-            if FlameMessageWindow(
-                    'Confirm Operation', 'confirm', 'Are you sure want to'
-                    + ' permanently delete this preset?' + '<br/>' + 'This operation'
-                    + ' cannot be undone.'):
-                preset_name = self.btn_preset.text()
-
-                for preset in self.settings_xml_presets.findall('preset'):
-                    if preset.get('name') == preset_name:
-                        self.settings_xml_presets.remove(preset)
-                        self.message(
-                            f'{preset_name} preset deleted from ' +
-                            f'{self.settings_xml_file}')
-
-                self.settings_xml_tree.write(
-                        self.settings_xml_file,
-                        encoding='UTF-8',
-                        xml_declaration=True
-                )
-
-            # Reload presets button
-            self.load_settings_tree()
-            self.get_settings_root()
-            self.get_settings_presets()
-            self.btn_preset.populate_menu(get_preset_names())
-            self.btn_preset.setText(get_selected_preset())
-            update_pattern()
-
-        def preset_save_button():
-            """Triggered when the Save button the Presets line is pressed."""
-            self.save_preset_window()
-
-        def okay_button():
-            """Triggered when the Okay button at the bottom is pressed."""
-            # add try and error msg window if path doesnt exist
-            if os.path.exists(self.folder_new):
-                flame.mediahub.files.set_path(self.folder_new)
-                self.window.close()
-                self.message(f'MediaHub path changed to {self.folder_new}')
-                self.message('Done!')
-            else:
-                FlameMessageWindow('Error', 'error',
-                        f'{self.folder_new} does not exist.')
-
-        def cancel_button():
-            """Triggered when the Cancel button at the bottom is pressed."""
-            self.message('Cancelled!')
-            self.window.close()
-
-        self.window = QtWidgets.QWidget()
-
-        self.window.setMinimumSize(self.window_x, self.window_y)
-        self.window.setStyleSheet('background-color: #272727')
-        self.window.setWindowTitle(TITLE_VERSION)
-        self.window.setAttribute(QtCore.Qt.WA_DeleteOnClose)
-
-        # Center Window
-        resolution = QtGui.QGuiApplication.primaryScreen().availableGeometry()
-
-        self.window.move(
-                (resolution.width() / 2) - (self.window_x / 2),
-                (resolution.height() / 2) - (self.window_y / 2 + 44)
-        )
+        # Keeps on top of Flame but not other windows
+        self.setWindowFlags(QtCore.Qt.Tool)
 
         # Labels
         self.label_preset = FlameLabel('Preset', 'normal')
@@ -1139,49 +989,46 @@ class PathTranslator:
         self.label_folder = FlameLabel('New Destination', 'normal')
 
         # Lines
-        self.line_edit_path = FlameLineEdit(self.path)
-        self.line_edit_path.setEnabled(not get_preset_clipboard_contents_state())
-        self.line_edit_path.textChanged.connect(update_folder)
+        self.line_edit_path = FlameLineEdit('')
+        self.line_edit_path.textChanged.connect(self.signal_path.emit)
 
-        self.line_edit_pattern_input = FlameLineEdit(self.pattern_input)
-        self.line_edit_pattern_input.textChanged.connect(update_folder)
+        self.line_edit_pattern_input = FlameLineEdit('')
+        self.line_edit_pattern_input.textChanged.connect(
+            self.signal_pattern_input.emit
+        )
 
-        self.line_edit_pattern_output = FlameLineEdit(self.pattern_output)
-        self.line_edit_pattern_output.textChanged.connect(update_folder)
+        self.line_edit_pattern_output = FlameLineEdit('')
+        self.line_edit_pattern_output.textChanged.connect(
+            self.signal_pattern_output.emit
+        )
 
-        self.line_edit_folder = FlameLabel(self.folder_new, 'background')
+        self.line_edit_folder = FlameLabel('', 'background')
 
         # Buttons
         self.btn_preset = FlamePushButtonMenu(
-            get_selected_preset(), get_preset_names(), menu_action=update_pattern)
+            '',
+            [],
+            menu_action=self.signal_preset.emit,
+        )
         self.btn_preset.setMaximumSize(QtCore.QSize(4000, 28))  # span over to Save btn
 
         self.btn_preset_save = FlameButton(
-                'Save', preset_save_button, button_width=110)
+            'Save', self.signal_save.emit, button_width=110)
         self.btn_preset_delete = FlameButton(
-                'Delete', preset_delete_button, button_width=110)
+            'Delete', self.signal_delete.emit, button_width=110)
         self.btn_path_clipboard = FlamePushButton(
-                'Clipboard Contents',
-                get_preset_clipboard_contents_state(),
-                button_width=240)
-        self.btn_path_clipboard.clicked.connect(toggle_clipboard_contents)
+            'Clipboard Contents',
+            False,
+            button_width=240)
+        self.btn_path_clipboard.clicked.connect(self.signal_clipboard.emit)
         self.btn_tokens_input = FlameTokenPushButton(
-                'Add Token',
-                # self.tokens is a dict with a nested set for each key
-                # FlameTokenPushButton wants a dict that is only {token_name: token}
-                # so need to simplify it with a dict comprehension
-                {key: values[0] for key, values in self.tokens_input.items()},
-                self.line_edit_pattern_input)
+            'Add Token', {}, self.line_edit_pattern_input, sort=True)
         self.btn_tokens_output = FlameTokenPushButton(
-                'Add Token',
-                # self.tokens is a dict with a nested set for each key
-                # FlameTokenPushButton wants a dict that is only {token_name: token}
-                # so need to simplify it with a dict comprehension
-                {key: values[0] for key, values in self.tokens_output.items()},
-                self.line_edit_pattern_output)
+            'Add Token', {}, self.line_edit_pattern_output, sort=True)
         self.btn_ok = FlameButton(
-                'Ok', okay_button, button_color='blue', button_width=110)
-        self.btn_cancel = FlameButton('Cancel', cancel_button, button_width=110)
+            'Ok', self.signal_ok.emit, button_color='blue', button_width=110)
+        self.btn_cancel = FlameButton(
+            'Cancel', self.signal_cancel.emit, button_width=110)
 
         # Layout
         self.hbox1 = QtWidgets.QHBoxLayout()
@@ -1218,11 +1065,364 @@ class PathTranslator:
         self.vbox.addSpacing(20)
         self.vbox.addLayout(self.hbox2)
 
-        self.window.setLayout(self.vbox)
+        self.setLayout(self.vbox)
 
-        self.window.show()
+        self.center_window()
 
-        return self.window
+    def center_window(self):
+        """Center the window on screen.
+
+        Important to note this is centering the window BEFORE it is shown.  frameSize is
+        based on setMinimumSize until the window is shown with show(), THEN it will
+        reflect actual size.  Therefore, its important to have your setMinimumSize be
+        very close to final size.
+        """
+        resolution = QtGui.QGuiApplication.primaryScreen().screenGeometry()
+        self.move(
+                (resolution.width() / 2) - (self.frameSize().width() / 2),
+                (resolution.height() / 2) - (self.frameSize().height() / 2))
+
+    @property
+    def destination(self):
+        """Get or set the destination filepath."""
+        return self.line_edit_folder.text()
+
+    @destination.setter
+    def destination(self, string):
+        self.line_edit_folder.setText(string)
+
+    @property
+    def clipboard_enabled(self):
+        """Get the status or set the status of the Get Clipboard Contents button."""
+        return self.btn_path_clipboard.isChecked()
+
+    @clipboard_enabled.setter
+    def clipboard_enabled(self, boolean):
+        self.btn_path_clipboard.setChecked(boolean)
+
+    @property
+    def path(self):
+        """Get or set the input path line edit."""
+        return self.line_edit_path.text()
+
+    @path.setter
+    def path(self, string):
+        self.line_edit_path.setText(string)
+
+    @property
+    def path_enabled(self):
+        """Get or set the enabled state of the path line edit."""
+        return self.line_edit_path.isEnabled()
+
+    @path_enabled.setter
+    def path_enabled(self, boolean):
+        self.line_edit_path.setEnabled(boolean)
+
+    @property
+    def preset(self):
+        """Get or set the currently selected preset name."""
+        return self.btn_preset.text()
+
+    @preset.setter
+    def preset(self, string):
+        self.btn_preset.setText(string)
+
+    @property
+    def presets(self):
+        """Get or set a list of the available preset names."""
+        return [action.text() for action in self.btn_preset.actions()]
+
+    @presets.setter
+    def presets(self, presets):
+        self.btn_preset.populate_menu(presets)
+
+    @property
+    def pattern_input(self):
+        """Get or set the input pattern."""
+        return self.line_edit_pattern_input.text()
+
+    @pattern_input.setter
+    def pattern_input(self, string):
+        self.line_edit_pattern_input.setText(string)
+
+    @property
+    def pattern_output(self):
+        """Get or set the output pattern."""
+        return self.line_edit_pattern_output.text()
+
+    @pattern_output.setter
+    def pattern_output(self, string):
+        self.line_edit_pattern_output.setText(string)
+
+    @property
+    def tokens_input(self):
+        """Get or set a dictionary of input tokens available."""
+        return self.btn_tokens_input.token_dict
+
+    @tokens_input.setter
+    def tokens_input(self, tokens_dict):
+        self.btn_tokens_input.init_menu(tokens_dict)
+
+    @property
+    def tokens_output(self):
+        """Get or set a dictionary of output tokens available."""
+        return self.btn_tokens_output.token_dict
+
+    @tokens_output.setter
+    def tokens_output(self, tokens_dict):
+        self.btn_tokens_output.init_menu(tokens_dict)
+
+
+class PathTranslator:
+    """Convert a path from one system to a valid path on another system.
+
+    Mostly useful to convert windows paths to posix paths, but could also be used for
+    posix paths on machines that have different mount points.
+    """
+    def __init__(self, selection):
+        """Create object with necessary attributes."""
+        self.message(TITLE_VERSION)
+        self.message(f'Script called from {__file__}')
+
+        del selection
+
+        # Load settings
+        self.settings_file = None
+        self.get_settings_file()
+        self.settings = SettingsStore(self.settings_file)
+
+        # Load starting path
+        self.path = None
+        self.load_path()
+
+        # Load the input pattern
+        self.pattern_input = None
+        self.load_pattern_input()
+
+        # Load the output pattern
+        self.pattern_output = None
+        self.load_pattern_output()
+
+        # Tokens
+        self.input_tokens = InputTokenStore(self.pattern_input, self.path)
+        self.now = dt.datetime.now()
+        self.tokens = TokenStore(epoch=self.now, input_tokens=self.input_tokens.data)
+
+        # Replace tokens to generate new folder name
+        self.folder_new = None
+        self.generate_folder_new()
+
+        # Windows Values
+        self.parent_window = self.get_flame_main_window()
+        self.main_window = MainWindow(self.parent_window)
+        self.main_window.preset = (self.settings.get_preset_names()[0] if
+                                   self.settings.get_preset_names() else None)
+        self.main_window.presets = self.settings.get_preset_names()
+        self.main_window.pattern_input = self.pattern_input
+        self.main_window.pattern_output = self.pattern_output
+        self.main_window.tokens_input = {key: values[0] for
+                                         key, values in self.input_tokens.data.items()}
+        self.main_window.tokens_output = {key: values[0] for
+                                          key, values in self.tokens.data.items()}
+        self.main_window.destination = self.folder_new
+
+        # Windows Connects
+        self.main_window.signal_preset.connect(self.update_pattern)
+        self.main_window.signal_save.connect(self.preset_save_button)
+        self.main_window.signal_delete.connect(self.preset_delete_button)
+        self.main_window.signal_path.connect(self.update_folder)
+        self.main_window.signal_clipboard.connect(self.clipboard_button)
+        self.main_window.signal_pattern_input.connect(self.update_folder)
+        self.main_window.signal_pattern_output.connect(self.update_folder)
+        self.main_window.signal_ok.connect(self.ok_button)
+        self.main_window.signal_cancel.connect(self.cancel_button)
+
+        # Windows Parent & Show
+        self.save_window = SavePresetWindow(self.main_window)
+        self.main_window.show()
+
+    @staticmethod
+    def message(string):
+        """Print message to shell window and append global MESSAGE_PREFIX."""
+        print(' '.join([MESSAGE_PREFIX, string]))
+
+    @staticmethod
+    def get_flame_main_window():
+        """Return the Flame main window widget."""
+        for widget in QtWidgets.QApplication.topLevelWidgets():
+            if widget.objectName() == 'CF Main Window':
+                return widget
+        return None
+
+    def get_settings_file(self):
+        """Generate filepath for settings."""
+        user_folder = os.path.expanduser(SETTINGS_FOLDER)
+        self.settings_file = os.path.join(user_folder, XML)
+
+    def load_path(self):
+        """Load the input path from the clipboard contents or empty str."""
+        if (self.settings.get_preset_names() and
+            self.settings.load_preset_by_index_element(
+                0, 'clipboard_contents') == 'true'):
+            self.load_path_from_clipboard()
+        else:
+            self.path = ''
+
+    def load_path_from_clipboard(self):
+        """Get clipboard contents."""
+        qt_app_instance = QtWidgets.QApplication.instance()
+        self.path = qt_app_instance.clipboard().text()  # raw string?
+
+    def load_pattern_input(self):
+        """Load the first preset's pattern or use the default pattern."""
+        if self.settings.get_preset_names():
+            # load output pattern for first element in list of presets
+            self.pattern_input = self.settings.load_preset_by_index_element(
+                0, 'pattern_input')
+        else:
+            self.pattern_input = ''
+
+    def load_pattern_output(self):
+        """Load output pattern from settings."""
+        if self.settings.get_preset_names():
+            # load input pattern for first element in list of presets
+            self.pattern_output = self.settings.load_preset_by_index_element(
+                0, 'pattern_output')
+        else:
+            self.pattern_output = ''
+
+    def generate_folder_new(self):
+        """Replace output path tokens with values."""
+        result = self.pattern_output
+
+        for name, values in self.tokens.data.items():
+            del name
+            token, value = values
+            result = result.replace(token, value)
+
+        # ensure all slashes are forward
+        result = result.replace('\\', '/')
+
+        if os.path.splitext(result)[1]:
+            self.folder_new = os.path.dirname(result)
+        else:
+            self.folder_new = os.path.join(result, '')
+
+    def preset_save_button(self):
+        """Triggered when the Save button the Presets line is pressed."""
+        self.save_window.name = self.main_window.preset
+        if self.save_window.exec() == QtWidgets.QDialog.Accepted:
+            duplicate = self.settings.duplicate_check(self.save_window.name)
+
+            if duplicate and FlameMessageWindow(
+                    'Overwrite Existing Preset', 'confirm', 'Are you '
+                    + 'sure want to permanently overwrite this preset?' + '<br/>'
+                    + 'This operation cannot be undone.'):
+                self.settings.overwrite_preset(
+                        name=self.save_window.name,
+                        clipboard_contents=self.main_window.clipboard_enabled,
+                        pattern_input=self.pattern_input,
+                        pattern_output=self.pattern_output,
+                )
+
+            if not duplicate:
+                self.settings.add_preset(
+                        name=self.save_window.name,
+                        clipboard_contents=self.main_window.clipboard_enabled,
+                        pattern_input=self.pattern_input,
+                        pattern_output=self.pattern_output,
+                )
+                self.settings.sort()
+
+            try:
+                self.settings.save()
+                self.message(f'{self.save_window.name} preset saved ' +
+                             f'to {self.settings_file}')
+            except OSError:  # removed IOError based on linter rule UP024
+                FlameMessageWindow(
+                    'Error', 'error',
+                    f'Check permissions on {self.settings_file}')
+
+            self.main_window.presets = self.settings.get_preset_names()
+            self.main_window.preset = self.save_window.name
+
+    def clipboard_button(self):
+        """Update UI when Clipboard Contents button is pressed."""
+        if self.main_window.clipboard_enabled:
+            self.main_window.path_enabled = False
+            self.load_path_from_clipboard()
+            self.main_window.path = self.path
+        else:
+            self.main_window.path_enabled = True
+
+    def update_folder(self):
+        """Update folder when pattern is changed."""
+        self.path = self.main_window.path
+        self.pattern_input = self.main_window.pattern_input
+        self.pattern_output = self.main_window.pattern_output
+        self.input_tokens = InputTokenStore(self.pattern_input, self.path)
+        self.now = dt.datetime.now()
+        self.tokens = TokenStore(epoch=self.now, input_tokens=self.input_tokens.data)
+        self.generate_folder_new()
+        self.main_window.destination = self.folder_new
+
+    def update_pattern(self):
+        """Update pattern when preset is changed."""
+        preset_name = self.main_window.preset
+
+        if preset_name:  # might be empty str if all presets were deleted
+            for preset in self.settings.get_presets():
+                if preset.find('name').text == preset_name:
+                    if preset.find('clipboard_contents').text == 'true':
+                        self.load_path_from_clipboard()
+                        self.main_window.path = self.path
+                        self.main_window.path_enabled = False
+                        self.main_window.clipboard_enabled = True
+                    else:
+                        self.main_window.path_enabled = True
+                        self.main_window.clipboard_enabled = False
+                    self.main_window.pattern_input = preset.find('pattern_input').text
+                    self.main_window.pattern_output = preset.find('pattern_output').text
+                    break  # should not be any duplicates
+
+    def preset_delete_button(self):
+        """Triggered when the Delete button on the Preset line is pressed."""
+        if FlameMessageWindow(
+                'Confirm Operation', 'confirm', 'Are you sure want to'
+                + ' permanently delete this preset?' + '<br/>' + 'This operation'
+                + ' cannot be undone.'):
+            preset_name = self.main_window.preset
+
+            for preset in self.settings.get_presets():
+                if preset.find('name').text == preset_name:
+                    self.settings.delete(preset)
+                    self.message(
+                        f'{preset_name} preset deleted from ' +
+                        f'{self.settings_file}')
+
+            self.settings.save()
+
+        # Reload presets button
+        self.settings.reload()
+        self.main_window.presets = self.settings.get_preset_names()
+        self.main_window.preset = self.settings.get_preset_names()[0]
+        self.update_pattern()
+
+    def ok_button(self):
+        """Triggered when the Okay button at the bottom is pressed."""
+        # add try and error msg window if path doesnt exist
+        if os.path.exists(self.folder_new):
+            flame.mediahub.files.set_path(self.folder_new)
+            self.main_window.close()
+            self.message(f'MediaHub path changed to {self.folder_new}')
+            self.message('Done!')
+        else:
+            FlameMessageWindow('Error', 'error', f'{self.folder_new} does not exist.')
+
+    def cancel_button(self):
+        """Triggered when the Cancel button at the bottom is pressed."""
+        self.main_window.close()
+        self.message('Cancelled!')
 
 
 def scope_folders(selection):
