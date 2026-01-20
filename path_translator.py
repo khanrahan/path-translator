@@ -1218,6 +1218,9 @@ class PathTranslator:
         self.main_window.preset = (self.settings.get_preset_names()[0] if
                                    self.settings.get_preset_names() else None)
         self.main_window.presets = self.settings.get_preset_names()
+        self.main_window.clipboard_enabled = self.get_clipboard_enabled()
+        self.main_window.path = self.path
+        self.main_window.path_enabled = not self.main_window.clipboard_enabled
         self.main_window.pattern_input = self.pattern_input
         self.main_window.pattern_output = self.pattern_output
         self.main_window.tokens_input = {key: values[0] for
@@ -1258,6 +1261,12 @@ class PathTranslator:
         """Generate filepath for settings."""
         user_folder = os.path.expanduser(SETTINGS_FOLDER)
         self.settings_file = os.path.join(user_folder, XML)
+
+    def get_clipboard_enabled(self):
+        """Return whether to load path from clipboard for first preset."""
+        return (self.settings.get_preset_names() and
+                self.settings.load_preset_by_index_element(
+                    0, 'clipboard_contents') == 'true')
 
     def load_path(self):
         """Load the input path from the clipboard contents or empty str."""
